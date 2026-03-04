@@ -2,20 +2,58 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { loadCreateSchema } from "@/lib/validation/schemas";
 import { rateLimit } from "@/lib/rate-limit";
+import { db } from "@/lib/db";
+import { loads, loadEvents, organizations } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
+import { computeEventHash } from "@/lib/events/hash-chain";
 
 export async function GET() {
-  return NextResponse.json({ loads: [] });
+  try {
+    const { orgId: clerkOrgId } = await auth();
+    if (!clerkOrgId) {
+      return NextResponse.json({ loads: [] });
+    }
+
+    const [org] = await db
+      .select()
+      .from(organizations)
+      .where(eq(organizations.clerkOrgId, clerkOrgId))
+      .limit(1);
+
+    if (!org) {
+      return NextResponse.json({ loads: [] });
+    }
+
+    const orgLoads = await db
+      .select()
+      .from(loads)
+      .where(eq(loads.orgId, org.id));
+
+    return NextResponse.json({ loads: orgLoads });
+  } catch (error) {
+    console.error("[LOADS GET]", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
 }
 
 export async function POST(request: Request) {
   try {
-    const { userId, orgId } = await auth();
-    if (!userId || !orgId) {
+    const { userId, orgId: clerkOrgId } = await auth();
+    if (!userId || !clerkOrgId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Rate limit: 30 per minute per org
-    const rl = rateLimit(`loads:${orgId}`, 30, 60 * 1000);
+    const [org] = await db
+      .select()
+      .from(organizations)
+      .where(eq(organizations.clerkOrgId, clerkOrgId))
+      .limit(1);
+
+    if (!org) {
+      return NextResponse.json({ error: "Organization not found" }, { status: 404 });
+    }
+
+    const rl = rateLimit(`loads:${org.id}`, 30, 60 * 1000);
     if (!rl.allowed) {
       return NextResponse.json(
         { error: "Rate limit exceeded. Please wait before creating more loads." },
@@ -32,10 +70,63 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json(
-      { message: "Load creation endpoint", data: parsed.data },
-      { status: 201 }
-    );
+    const data = parsed.data;
+    const rateCents = data.rateDollars ? Math.round(parseFloat(data.rateDollars) * 100) : null;
+    const weightLbs = data.weightLbs ? parseInt(data.weightLbs, 10) : null;
+
+    const [load] = await db
+      .insert(loads)
+      .values({
+        orgId: org.id,
+        referenceNumber: data.referenceNumber,
+        status: "draft",
+        originName: data.originName,
+        originAddress: data.originAddress,
+        originLat: data.originLat || null,
+        originLng: data.originLng || null,
+        destinationName: data.destinationName,
+        destinationAddress: data.destinationAddress,
+        destinationLat: data.destinationLat || null,
+        destinationLng: data.destinationLng || null,
+        pickupDate: new Date(data.pickupDate),
+        deliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : null,
+        commodity: data.commodity || null,
+        weightLbs,
+        specialInstructions: data.specialInstructions || null,
+        rateCents,
+        carrierId: data.carrierId || null,
+        createdBy: userId,
+      })
+      .returning();
+
+    const now = new Date();
+    const eventData = {
+      loadId: load.id,
+      eventType: "load_created",
+      actorId: userId,
+      actorType: "user" as const,
+      description: "Load " + data.referenceNumber + " created",
+      metadata: { referenceNumber: data.referenceNumber },
+      geoLat: null,
+      geoLng: null,
+      createdAt: now,
+    };
+    const eventHash = computeEventHash(eventData, null);
+
+    await db.insert(loadEvents).values({
+      loadId: load.id,
+      orgId: org.id,
+      eventType: eventData.eventType,
+      actorId: eventData.actorId,
+      actorType: eventData.actorType,
+      description: eventData.description,
+      metadata: eventData.metadata,
+      prevHash: null,
+      eventHash,
+      createdAt: now,
+    });
+
+    return NextResponse.json({ load }, { status: 201 });
   } catch (error) {
     console.error("[LOADS POST]", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

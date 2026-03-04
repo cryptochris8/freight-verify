@@ -128,16 +128,10 @@ export async function generatePickupVerification(
   };
 }
 
-/**
- * Sends the pickup OTP to the driver's phone number.
- * Currently a placeholder that logs the SMS message.
- * TODO: Integrate with Twilio SDK for actual SMS delivery.
- */
 export async function sendPickupOtp(
   verificationId: string,
   phoneNumber: string
 ): Promise<{ success: boolean; error?: string }> {
-  // Fetch verification and associated load
   const [verification] = await db
     .select()
     .from(pickupVerifications)
@@ -158,17 +152,29 @@ export async function sendPickupOtp(
     return { success: false, error: "Load not found" };
   }
 
-  // TODO: Integrate with Twilio SMS API
-  // const twilio = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-  // await twilio.messages.create({
-  //   body: `Your pickup code for Load #${load.referenceNumber} at ${load.originName} is: ${otp}. Show this to dock staff.`,
-  //   from: process.env.TWILIO_PHONE_NUMBER,
-  //   to: phoneNumber,
-  // });
+  const smsBody = `Your pickup code for Load #${load.referenceNumber} at ${load.originName} is: [OTP]. Show this to dock staff.`;
 
-  console.log(
-    `[SMS PLACEHOLDER] To: ${phoneNumber}, Message: "Your pickup code for Load #${load.referenceNumber} at ${load.originName} is: [OTP]. Show this to dock staff."`
-  );
+  const twilioSid = process.env.TWILIO_ACCOUNT_SID;
+  const twilioToken = process.env.TWILIO_AUTH_TOKEN;
+  const twilioFrom = process.env.TWILIO_PHONE_NUMBER;
+
+  if (twilioSid && twilioToken && twilioFrom) {
+    try {
+      const twilio = await import("twilio");
+      const client = twilio.default(twilioSid, twilioToken);
+      await client.messages.create({
+        body: smsBody,
+        from: twilioFrom,
+        to: phoneNumber,
+      });
+      console.log(`[SMS] OTP sent to ${phoneNumber.slice(0, 3)}***${phoneNumber.slice(-4)} via Twilio`);
+    } catch (err) {
+      console.error("[SMS] Twilio send failed:", err);
+      return { success: false, error: "Failed to send SMS via Twilio" };
+    }
+  } else {
+    console.log(`[SMS FALLBACK] Twilio env vars not configured. Would send to: ${phoneNumber}, Message: "${smsBody}"`);
+  }
 
   // Update driver phone on verification record
   await db

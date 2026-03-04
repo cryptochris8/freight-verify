@@ -16,15 +16,11 @@ export function getStripe(): Stripe {
   return _stripe;
 }
 
-/**
- * Resolves the Stripe price ID for a given tier.
- * Uses env vars: STRIPE_PRICE_STARTER, STRIPE_PRICE_PROFESSIONAL, STRIPE_PRICE_BUSINESS
- */
 function getPriceIdForTier(tier: PlanTier): string {
   const envMap: Record<PlanTier, string> = {
-    starter: process.env.STRIPE_PRICE_STARTER ?? "price_starter",
-    professional: process.env.STRIPE_PRICE_PROFESSIONAL ?? "price_professional",
-    business: process.env.STRIPE_PRICE_BUSINESS ?? "price_business",
+    starter: process.env.STRIPE_STARTER_PRICE_ID ?? "price_starter",
+    professional: process.env.STRIPE_PROFESSIONAL_PRICE_ID ?? "price_professional",
+    business: process.env.STRIPE_BUSINESS_PRICE_ID ?? "price_business",
   };
   return envMap[tier];
 }

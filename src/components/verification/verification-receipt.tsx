@@ -21,10 +21,25 @@ export function VerificationReceipt({
   loadReference, carrierName, driverName, verifiedAt,
   geoLat, geoLng, photoUrls, loadId,
 }: VerificationReceiptProps) {
-  function handleEmailReceipt() {
-    // TODO: Integrate with email service (Resend) to send receipt to broker
-    console.log("[EMAIL PLACEHOLDER] Would send verification receipt for load " + loadId + " to broker");
-    alert("Receipt email functionality coming soon. Receipt has been logged.");
+  async function handleEmailReceipt() {
+    const email = prompt("Enter broker email address:");
+    if (!email) return;
+
+    try {
+      const res = await fetch("/api/verification/receipt/" + loadId, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const result = await res.json();
+      if (result.success) {
+        alert("Verification receipt sent to " + email);
+      } else {
+        alert("Failed to send receipt: " + (result.error ?? "Unknown error"));
+      }
+    } catch {
+      alert("Failed to send receipt email.");
+    }
   }
 
   function handlePrint() {

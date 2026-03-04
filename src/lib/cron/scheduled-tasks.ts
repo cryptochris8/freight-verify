@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { carriers, carrierDocuments, alerts } from "@/lib/db/schema";
 import { eq, and, lte, gte } from "drizzle-orm";
 import { addDays } from "date-fns";
-import { generateDailyDigest } from "@/lib/notifications/daily-digest";
+import { sendDailyDigest } from "@/lib/notifications/daily-digest";
 
 /**
  * Re-verify all active carriers against FMCSA weekly.
@@ -82,14 +82,13 @@ export async function dailyDocExpirationCheck(orgId: string) {
   }
 }
 
-/**
- * Send daily digest email to org admins.
- * TODO: Wire up to Vercel Cron or Inngest.
- */
-export async function dailyDigestSend(orgId: string) {
-  console.log("[CRON] dailyDigestSend: Generating digest for org " + orgId);
-  const digest = await generateDailyDigest(orgId);
-  console.log("[CRON] Digest generated. Subject: " + digest.subject);
-  console.log("[CRON] Would send to: " + (digest.to.length > 0 ? digest.to.join(", ") : "no recipients configured"));
-  // TODO: send via Resend
+export async function dailyDigestSend(orgId: string, recipientEmails: string[]) {
+  console.log("[CRON] dailyDigestSend: Generating and sending digest for org " + orgId);
+  const result = await sendDailyDigest(orgId, recipientEmails);
+  if (result.success) {
+    console.log("[CRON] Digest sent successfully, id: " + result.emailId);
+  } else {
+    console.log("[CRON] Digest send failed: " + result.error);
+  }
+  return result;
 }

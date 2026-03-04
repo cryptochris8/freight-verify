@@ -42,17 +42,34 @@ export function LoadDocuments({ loadId, documents: initialDocs }: LoadDocumentsP
     if (!file) return;
 
     startTransition(async () => {
-      // Placeholder: In production, upload to Supabase Storage
-      const newDoc = {
-        id: crypto.randomUUID(),
-        docType,
-        fileName: file.name,
-        fileUrl: "#placeholder-" + file.name,
-        fileSize: file.size,
-        createdAt: new Date().toISOString(),
-      };
-      setDocuments((prev) => [...prev, newDoc]);
-      console.log("[UPLOAD] Would upload " + file.name + " to Supabase Storage for load " + loadId);
+      const formData = new FormData();
+      formData.append("loadId", loadId);
+      formData.append("photoType", docType);
+      formData.append("file", file);
+
+      try {
+        const res = await fetch("/api/verification/photos", {
+          method: "POST",
+          body: formData,
+        });
+        const result = await res.json();
+
+        if (result.success) {
+          const newDoc: LoadDocument = {
+            id: crypto.randomUUID(),
+            docType,
+            fileName: file.name,
+            fileUrl: result.fileUrl ?? "/uploads/" + file.name,
+            fileSize: file.size,
+            createdAt: new Date().toISOString(),
+          };
+          setDocuments((prev) => [...prev, newDoc]);
+        } else {
+          console.error("[UPLOAD] Failed:", result.error);
+        }
+      } catch (err) {
+        console.error("[UPLOAD] Error:", err);
+      }
     });
   }
 
