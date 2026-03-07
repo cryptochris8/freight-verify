@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { db } from "@/lib/db";
 import { loadMessages, loads } from "@/lib/db/schema";
-import { eq, asc } from "drizzle-orm";
+import { eq, and, asc } from "drizzle-orm";
 import { messageCreateSchema } from "@/lib/validation/schemas";
 
 export async function GET(
@@ -11,13 +11,18 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const { userId } = await auth();
-    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const { userId, orgId } = await auth();
+    if (!userId || !orgId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    // Validate load belongs to this org
+    const [load] = await db.select({ id: loads.id }).from(loads)
+      .where(and(eq(loads.id, id), eq(loads.orgId, orgId))).limit(1);
+    if (!load) return NextResponse.json({ error: "Load not found" }, { status: 404 });
 
     const messages = await db
       .select()
       .from(loadMessages)
-      .where(eq(loadMessages.loadId, id))
+      .where(and(eq(loadMessages.loadId, id), eq(loadMessages.orgId, orgId)))
       .orderBy(asc(loadMessages.createdAt));
 
     return NextResponse.json(messages);

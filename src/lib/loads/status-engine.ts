@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { loads, loadEvents } from "@/lib/db/schema";
-import { eq, desc } from "drizzle-orm";
-import { computeEventHash } from "@/lib/events/hash-chain";
+import { eq } from "drizzle-orm";
+import { createChainedEvent } from "@/lib/events/create-event";
 
 export type LoadStatus = "draft" | "tendered" | "accepted" | "in_transit" | "delivered" | "completed" | "cancelled";
 
@@ -65,29 +65,7 @@ export async function transitionStatus(
     if (error) return { success: false, error };
   }
 
-  const [lastEvent] = await db
-    .select()
-    .from(loadEvents)
-    .where(eq(loadEvents.loadId, loadId))
-    .orderBy(desc(loadEvents.id))
-    .limit(1);
-
-  const prevHash = lastEvent?.eventHash ?? null;
   const now = new Date();
-
-  const eventData = {
-    loadId,
-    eventType: `status_change:${currentStatus}->${newStatus}`,
-    actorId,
-    actorType: actorId ? ("user" as const) : ("system" as const),
-    description: `Status changed from ${currentStatus} to ${newStatus}`,
-    metadata: { fromStatus: currentStatus, toStatus: newStatus, ...metadata },
-    geoLat: null,
-    geoLng: null,
-    createdAt: now,
-  };
-
-  const eventHash = computeEventHash(eventData, prevHash);
 
   const [updatedLoad] = await db
     .update(loads)
@@ -95,21 +73,15 @@ export async function transitionStatus(
     .where(eq(loads.id, loadId))
     .returning();
 
-  const [event] = await db
-    .insert(loadEvents)
-    .values({
-      loadId,
-      orgId,
-      eventType: eventData.eventType,
-      actorId: eventData.actorId,
-      actorType: eventData.actorType,
-      description: eventData.description,
-      metadata: eventData.metadata,
-      prevHash,
-      eventHash,
-      createdAt: now,
-    })
-    .returning();
+  const event = await createChainedEvent({
+    loadId,
+    orgId,
+    eventType: `status_change:${currentStatus}->${newStatus}`,
+    actorId,
+    actorType: actorId ? "user" : "system",
+    description: `Status changed from ${currentStatus} to ${newStatus}`,
+    metadata: { fromStatus: currentStatus, toStatus: newStatus, ...metadata },
+  });
 
   return { success: true, load: updatedLoad, event };
 }

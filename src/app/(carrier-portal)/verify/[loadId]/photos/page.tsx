@@ -76,6 +76,9 @@ export default function PhotoCapturePage() {
         const res = await fetch("/api/verification/receipt/" + loadId);
         if (res.ok) {
           router.push("/verify/" + loadId);
+        } else {
+          const data = await res.json().catch(() => null);
+          setError(data?.error ?? "Failed to complete verification. Please try again.");
         }
       } catch {
         setError("Failed to complete verification.");

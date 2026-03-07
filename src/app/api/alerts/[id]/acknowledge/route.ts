@@ -44,7 +44,7 @@ export async function POST(
       acknowledgedAt: new Date(),
       acknowledgeNote: notes || null,
     })
-    .where(eq(alerts.id, id));
+    .where(and(eq(alerts.id, id), eq(alerts.orgId, orgId)));
 
   return NextResponse.json({ success: true });
 }

@@ -4,6 +4,15 @@ import { db } from "@/lib/db";
 import { pickupVerifications } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 
+async function getDriverPhone(verificationId: string): Promise<string | null> {
+  const [verification] = await db
+    .select({ driverPhone: pickupVerifications.driverPhone })
+    .from(pickupVerifications)
+    .where(eq(pickupVerifications.id, verificationId))
+    .limit(1);
+  return verification?.driverPhone ?? null;
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -18,17 +27,10 @@ export async function POST(request: Request) {
       return NextResponse.json(result, { status: 400 });
     }
 
-    if (phoneNumber && result.verificationId) {
-      await sendPickupOtp(result.verificationId, phoneNumber);
-    } else if (result.verificationId) {
-      const [verification] = await db
-        .select()
-        .from(pickupVerifications)
-        .where(eq(pickupVerifications.id, result.verificationId))
-        .limit(1);
-
-      if (verification?.driverPhone) {
-        await sendPickupOtp(result.verificationId, verification.driverPhone);
+    if (result.verificationId && result.otp) {
+      const targetPhone = phoneNumber || await getDriverPhone(result.verificationId);
+      if (targetPhone) {
+        await sendPickupOtp(result.verificationId, targetPhone, result.otp);
       }
     }
 

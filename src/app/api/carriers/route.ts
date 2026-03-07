@@ -5,6 +5,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { db } from "@/lib/db";
 import { carriers, organizations } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { checkAccess } from "@/lib/billing/feature-gate";
 
 export async function GET() {
   try {
@@ -57,6 +58,14 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: "Rate limit exceeded. Please wait before adding more carriers." },
         { status: 429, headers: { "Retry-After": String(Math.ceil((rl.resetAt.getTime() - Date.now()) / 1000)) } }
+      );
+    }
+
+    const access = await checkAccess(org.id, "carrierLimit");
+    if (!access.allowed) {
+      return NextResponse.json(
+        { error: access.reason ?? "Carrier limit reached" },
+        { status: 403 }
       );
     }
 

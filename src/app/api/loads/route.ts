@@ -3,9 +3,9 @@ import { auth } from "@clerk/nextjs/server";
 import { loadCreateSchema } from "@/lib/validation/schemas";
 import { rateLimit } from "@/lib/rate-limit";
 import { db } from "@/lib/db";
-import { loads, loadEvents, organizations } from "@/lib/db/schema";
+import { loads, organizations } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { computeEventHash } from "@/lib/events/hash-chain";
+import { createChainedEvent } from "@/lib/events/create-event";
 
 export async function GET() {
   try {
@@ -99,31 +99,14 @@ export async function POST(request: Request) {
       })
       .returning();
 
-    const now = new Date();
-    const eventData = {
-      loadId: load.id,
-      eventType: "load_created",
-      actorId: userId,
-      actorType: "user" as const,
-      description: "Load " + data.referenceNumber + " created",
-      metadata: { referenceNumber: data.referenceNumber },
-      geoLat: null,
-      geoLng: null,
-      createdAt: now,
-    };
-    const eventHash = computeEventHash(eventData, null);
-
-    await db.insert(loadEvents).values({
+    await createChainedEvent({
       loadId: load.id,
       orgId: org.id,
-      eventType: eventData.eventType,
-      actorId: eventData.actorId,
-      actorType: eventData.actorType,
-      description: eventData.description,
-      metadata: eventData.metadata,
-      prevHash: null,
-      eventHash,
-      createdAt: now,
+      eventType: "load_created",
+      actorId: userId,
+      actorType: "user",
+      description: "Load " + data.referenceNumber + " created",
+      metadata: { referenceNumber: data.referenceNumber },
     });
 
     return NextResponse.json({ load }, { status: 201 });

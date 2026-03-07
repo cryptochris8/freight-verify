@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
-import { carriers, loads, loadEvents, alerts } from "@/lib/db/schema";
-import { eq, desc, and } from "drizzle-orm";
-import { computeEventHash } from "@/lib/events/hash-chain";
+import { carriers, loads, alerts } from "@/lib/db/schema";
+import { eq, and } from "drizzle-orm";
+import { createChainedEvent } from "@/lib/events/create-event";
 
 export interface AssignmentValidation {
   valid: boolean;
@@ -68,43 +68,16 @@ export async function assignCarrier(
     return { success: false, error: validation.errors.join("; ") };
   }
 
-  const [lastEvent] = await db
-    .select()
-    .from(loadEvents)
-    .where(eq(loadEvents.loadId, loadId))
-    .orderBy(desc(loadEvents.id))
-    .limit(1);
+  await db.update(loads).set({ carrierId, updatedAt: new Date() }).where(eq(loads.id, loadId));
 
-  const prevHash = lastEvent?.eventHash ?? null;
-  const now = new Date();
-
-  const eventData = {
-    loadId,
-    eventType: "carrier_assigned",
-    actorId,
-    actorType: actorId ? ("user" as const) : ("system" as const),
-    description: `Carrier ${validation.carrier?.legalName ?? carrierId} assigned to load`,
-    metadata: { carrierId, carrierName: validation.carrier?.legalName },
-    geoLat: null,
-    geoLng: null,
-    createdAt: now,
-  };
-
-  const eventHash = computeEventHash(eventData, prevHash);
-
-  await db.update(loads).set({ carrierId, updatedAt: now }).where(eq(loads.id, loadId));
-
-  await db.insert(loadEvents).values({
+  await createChainedEvent({
     loadId,
     orgId,
-    eventType: eventData.eventType,
-    actorId: eventData.actorId,
-    actorType: eventData.actorType,
-    description: eventData.description,
-    metadata: eventData.metadata,
-    prevHash,
-    eventHash,
-    createdAt: now,
+    eventType: "carrier_assigned",
+    actorId,
+    actorType: actorId ? "user" : "system",
+    description: `Carrier ${validation.carrier?.legalName ?? carrierId} assigned to load`,
+    metadata: { carrierId, carrierName: validation.carrier?.legalName },
   });
 
   return { success: true, warnings: validation.warnings };
@@ -119,43 +92,16 @@ export async function unassignCarrier(
   if (!load) return { success: false, error: "Load not found" };
   if (!load.carrierId) return { success: false, error: "No carrier assigned" };
 
-  const [lastEvent] = await db
-    .select()
-    .from(loadEvents)
-    .where(eq(loadEvents.loadId, loadId))
-    .orderBy(desc(loadEvents.id))
-    .limit(1);
+  await db.update(loads).set({ carrierId: null, updatedAt: new Date() }).where(eq(loads.id, loadId));
 
-  const prevHash = lastEvent?.eventHash ?? null;
-  const now = new Date();
-
-  const eventData = {
-    loadId,
-    eventType: "carrier_unassigned",
-    actorId,
-    actorType: actorId ? ("user" as const) : ("system" as const),
-    description: `Carrier removed from load`,
-    metadata: { previousCarrierId: load.carrierId },
-    geoLat: null,
-    geoLng: null,
-    createdAt: now,
-  };
-
-  const eventHash = computeEventHash(eventData, prevHash);
-
-  await db.update(loads).set({ carrierId: null, updatedAt: now }).where(eq(loads.id, loadId));
-
-  await db.insert(loadEvents).values({
+  await createChainedEvent({
     loadId,
     orgId,
-    eventType: eventData.eventType,
-    actorId: eventData.actorId,
-    actorType: eventData.actorType,
-    description: eventData.description,
-    metadata: eventData.metadata,
-    prevHash,
-    eventHash,
-    createdAt: now,
+    eventType: "carrier_unassigned",
+    actorId,
+    actorType: actorId ? "user" : "system",
+    description: `Carrier removed from load`,
+    metadata: { previousCarrierId: load.carrierId },
   });
 
   return { success: true };

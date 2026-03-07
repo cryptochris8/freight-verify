@@ -2,15 +2,21 @@
 
 import { db } from "@/lib/db";
 import { loads, loadEvents, carriers } from "@/lib/db/schema";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { loadFormSchema, type LoadFormValues } from "@/lib/loads/validation";
 import { transitionStatus, type LoadStatus } from "@/lib/loads/status-engine";
 import { assignCarrier } from "@/lib/loads/assignment";
-import { computeEventHash } from "@/lib/events/hash-chain";
+import { createChainedEvent } from "@/lib/events/create-event";
+import { checkAccess } from "@/lib/billing/feature-gate";
 import crypto from "crypto";
 
 export async function createLoad(values: LoadFormValues, orgId: string, userId: string) {
+  const access = await checkAccess(orgId, "loadLimit");
+  if (!access.allowed) {
+    return { success: false as const, error: access.reason ?? "Load limit reached" };
+  }
+
   const parsed = loadFormSchema.safeParse(values);
   if (!parsed.success) {
     return { success: false as const, error: parsed.error.flatten().fieldErrors };
@@ -42,30 +48,14 @@ export async function createLoad(values: LoadFormValues, orgId: string, userId: 
     createdBy: userId,
   }).returning();
 
-  const eventData = {
-    loadId: load.id,
-    eventType: "load_created",
-    actorId: userId,
-    actorType: "user" as const,
-    description: "Load " + data.referenceNumber + " created",
-    metadata: { referenceNumber: data.referenceNumber },
-    geoLat: null,
-    geoLng: null,
-    createdAt: new Date(),
-  };
-  const eventHash = computeEventHash(eventData, null);
-
-  await db.insert(loadEvents).values({
+  await createChainedEvent({
     loadId: load.id,
     orgId,
-    eventType: eventData.eventType,
-    actorId: eventData.actorId,
-    actorType: eventData.actorType,
-    description: eventData.description,
-    metadata: eventData.metadata,
-    prevHash: null,
-    eventHash,
-    createdAt: eventData.createdAt,
+    eventType: "load_created",
+    actorId: userId,
+    actorType: "user",
+    description: "Load " + data.referenceNumber + " created",
+    metadata: { referenceNumber: data.referenceNumber },
   });
 
   if (data.carrierId) {
@@ -104,7 +94,7 @@ export async function updateLoad(loadId: string, values: LoadFormValues, orgId: 
     rateCents,
     carrierId: data.carrierId || null,
     updatedAt: new Date(),
-  }).where(eq(loads.id, loadId));
+  }).where(and(eq(loads.id, loadId), eq(loads.orgId, orgId)));
 
   revalidatePath("/loads");
   return { success: true as const };
@@ -123,7 +113,7 @@ export async function deleteLoad(loadId: string, orgId: string) {
 }
 
 export async function tenderLoad(loadId: string, orgId: string, userId: string) {
-  const [load] = await db.select().from(loads).where(eq(loads.id, loadId)).limit(1);
+  const [load] = await db.select().from(loads).where(and(eq(loads.id, loadId), eq(loads.orgId, orgId))).limit(1);
   if (!load) return { success: false as const, error: "Load not found" };
   if (load.status !== "draft") return { success: false as const, error: "Load must be in draft status to tender" };
   if (!load.carrierId) return { success: false as const, error: "No carrier assigned" };

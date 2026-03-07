@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, varchar, numeric, integer, boolean, timestamp, inet, jsonb, pgEnum, bigserial } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, varchar, numeric, integer, boolean, timestamp, inet, jsonb, pgEnum, bigserial, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 export const carrierStatusEnum = pgEnum('carrier_status', ['pending', 'verified', 'flagged', 'suspended', 'expired']);
@@ -23,7 +23,9 @@ export const organizations = pgTable('organizations', {
   verifiedLoadsLimit: integer('verified_loads_limit').default(50),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
-});
+}, (table) => [
+  uniqueIndex('organizations_clerk_org_id_idx').on(table.clerkOrgId),
+]);
 
 export const carriers = pgTable('carriers', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -43,11 +45,16 @@ export const carriers = pgTable('carriers', {
   fleetSize: integer('fleet_size'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
-});
+}, (table) => [
+  index('carriers_org_id_idx').on(table.orgId),
+  index('carriers_dot_number_idx').on(table.dotNumber),
+  index('carriers_status_idx').on(table.status),
+  index('carriers_org_id_status_idx').on(table.orgId, table.status),
+]);
 
 export const carrierDocuments = pgTable('carrier_documents', {
   id: uuid('id').primaryKey().defaultRandom(),
-  carrierId: uuid('carrier_id').references(() => carriers.id).notNull(),
+  carrierId: uuid('carrier_id').references(() => carriers.id, { onDelete: 'cascade' }).notNull(),
   orgId: uuid('org_id').references(() => organizations.id).notNull(),
   docType: docTypeEnum('doc_type').notNull(),
   fileUrl: text('file_url').notNull(),
@@ -58,18 +65,25 @@ export const carrierDocuments = pgTable('carrier_documents', {
   verifiedBy: uuid('verified_by'),
   expiresAt: timestamp('expires_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
-});
+}, (table) => [
+  index('carrier_documents_carrier_id_idx').on(table.carrierId),
+  index('carrier_documents_org_id_idx').on(table.orgId),
+  index('carrier_documents_expires_at_idx').on(table.expiresAt),
+]);
 
 export const carrierVerifications = pgTable('carrier_verifications', {
   id: uuid('id').primaryKey().defaultRandom(),
-  carrierId: uuid('carrier_id').references(() => carriers.id).notNull(),
+  carrierId: uuid('carrier_id').references(() => carriers.id, { onDelete: 'cascade' }).notNull(),
   orgId: uuid('org_id').references(() => organizations.id).notNull(),
   checkType: checkTypeEnum('check_type').notNull(),
   status: verificationStatusEnum('status').default('pending'),
   details: jsonb('details'),
   performedBy: uuid('performed_by'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
-});
+}, (table) => [
+  index('carrier_verifications_carrier_id_idx').on(table.carrierId),
+  index('carrier_verifications_org_id_idx').on(table.orgId),
+]);
 
 export const loads = pgTable('loads', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -97,11 +111,18 @@ export const loads = pgTable('loads', {
   createdBy: uuid('created_by'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
-});
+}, (table) => [
+  index('loads_org_id_idx').on(table.orgId),
+  index('loads_carrier_id_idx').on(table.carrierId),
+  index('loads_status_idx').on(table.status),
+  index('loads_org_id_status_idx').on(table.orgId, table.status),
+  index('loads_pickup_date_idx').on(table.pickupDate),
+  index('loads_reference_number_idx').on(table.referenceNumber),
+]);
 
 export const pickupVerifications = pgTable('pickup_verifications', {
   id: uuid('id').primaryKey().defaultRandom(),
-  loadId: uuid('load_id').references(() => loads.id).notNull(),
+  loadId: uuid('load_id').references(() => loads.id, { onDelete: 'cascade' }).notNull(),
   orgId: uuid('org_id').references(() => organizations.id).notNull(),
   otpHash: varchar('otp_hash', { length: 255 }),
   otpExpiresAt: timestamp('otp_expires_at', { withTimezone: true }),
@@ -123,11 +144,15 @@ export const pickupVerifications = pgTable('pickup_verifications', {
   notes: text('notes'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
-});
+}, (table) => [
+  index('pickup_verifications_load_id_idx').on(table.loadId),
+  index('pickup_verifications_org_id_idx').on(table.orgId),
+  index('pickup_verifications_verification_status_idx').on(table.verificationStatus),
+]);
 
 export const loadEvents = pgTable('load_events', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
-  loadId: uuid('load_id').references(() => loads.id).notNull(),
+  loadId: uuid('load_id').references(() => loads.id, { onDelete: 'cascade' }).notNull(),
   orgId: uuid('org_id').references(() => organizations.id).notNull(),
   eventType: varchar('event_type', { length: 50 }).notNull(),
   actorId: uuid('actor_id'),
@@ -140,13 +165,18 @@ export const loadEvents = pgTable('load_events', {
   prevHash: varchar('prev_hash', { length: 64 }),
   eventHash: varchar('event_hash', { length: 64 }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
-});
+}, (table) => [
+  index('load_events_load_id_idx').on(table.loadId),
+  index('load_events_org_id_idx').on(table.orgId),
+  index('load_events_event_type_idx').on(table.eventType),
+  index('load_events_created_at_idx').on(table.createdAt),
+]);
 
 export const alerts = pgTable('alerts', {
   id: uuid('id').primaryKey().defaultRandom(),
   orgId: uuid('org_id').references(() => organizations.id).notNull(),
-  loadId: uuid('load_id').references(() => loads.id),
-  carrierId: uuid('carrier_id').references(() => carriers.id),
+  loadId: uuid('load_id').references(() => loads.id, { onDelete: 'set null' }),
+  carrierId: uuid('carrier_id').references(() => carriers.id, { onDelete: 'set null' }),
   alertType: varchar('alert_type', { length: 50 }).notNull(),
   severity: alertSeverityEnum('severity').notNull(),
   title: text('title').notNull(),
@@ -157,7 +187,12 @@ export const alerts = pgTable('alerts', {
   acknowledgeNote: text('acknowledge_note'),
   metadata: jsonb('metadata'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
-});
+}, (table) => [
+  index('alerts_org_id_idx').on(table.orgId),
+  index('alerts_org_id_status_idx').on(table.orgId, table.status),
+  index('alerts_severity_idx').on(table.severity),
+  index('alerts_created_at_idx').on(table.createdAt),
+]);
 
 export const auditLog = pgTable('audit_log', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
@@ -170,12 +205,15 @@ export const auditLog = pgTable('audit_log', {
   metadata: jsonb('metadata'),
   ipAddress: inet('ip_address'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
-});
+}, (table) => [
+  index('audit_log_org_id_idx').on(table.orgId),
+  index('audit_log_entity_type_entity_id_idx').on(table.entityType, table.entityId),
+]);
 
 
 export const loadDocuments = pgTable('load_documents', {
   id: uuid('id').primaryKey().defaultRandom(),
-  loadId: uuid('load_id').references(() => loads.id).notNull(),
+  loadId: uuid('load_id').references(() => loads.id, { onDelete: 'cascade' }).notNull(),
   orgId: uuid('org_id').references(() => organizations.id).notNull(),
   docType: loadDocTypeEnum('doc_type').notNull(),
   fileName: text('file_name').notNull(),
@@ -183,18 +221,24 @@ export const loadDocuments = pgTable('load_documents', {
   fileSize: integer('file_size'),
   uploadedBy: uuid('uploaded_by'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
-});
+}, (table) => [
+  index('load_documents_load_id_idx').on(table.loadId),
+  index('load_documents_org_id_idx').on(table.orgId),
+]);
 
 export const loadMessages = pgTable('load_messages', {
   id: uuid('id').primaryKey().defaultRandom(),
-  loadId: uuid('load_id').references(() => loads.id).notNull(),
+  loadId: uuid('load_id').references(() => loads.id, { onDelete: 'cascade' }).notNull(),
   orgId: uuid('org_id').references(() => organizations.id).notNull(),
   authorId: uuid('author_id'),
   authorName: text('author_name'),
   authorType: messageAuthorTypeEnum('author_type').notNull(),
   content: text('content').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
-});
+}, (table) => [
+  index('load_messages_load_id_idx').on(table.loadId),
+  index('load_messages_org_id_idx').on(table.orgId),
+]);
 
 // Relations
 export const organizationsRelations = relations(organizations, ({ many }) => ({
@@ -275,7 +319,9 @@ export const subscriptions = pgTable('subscriptions', {
   cancelAtPeriodEnd: boolean('cancel_at_period_end').default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
-});
+}, (table) => [
+  index('subscriptions_stripe_customer_id_idx').on(table.stripeCustomerId),
+]);
 
 export const subscriptionsRelations = relations(subscriptions, ({ one }) => ({
   organization: one(organizations, { fields: [subscriptions.orgId], references: [organizations.id] }),

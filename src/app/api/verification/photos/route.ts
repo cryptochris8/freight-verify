@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { uploadPhoto } from "@/app/actions/verification";
+import { db } from "@/lib/db";
+import { loads } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -22,6 +25,12 @@ export async function POST(request: Request) {
 
     if (!file) {
       return NextResponse.json({ success: false, error: "No file provided" }, { status: 400 });
+    }
+
+    // Validate load exists and belongs to a known org
+    const [load] = await db.select({ id: loads.id, orgId: loads.orgId }).from(loads).where(eq(loads.id, loadId)).limit(1);
+    if (!load) {
+      return NextResponse.json({ success: false, error: "Load not found" }, { status: 404 });
     }
 
     const fileName = `${loadId}/${photoType}-${Date.now()}-${file.name}`;

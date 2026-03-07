@@ -87,7 +87,7 @@ export default async function LoadsPage({ searchParams }: { searchParams: Promis
   const [deliveredWeek] = await db.select({ value: count() }).from(loads).where(and(eq(loads.orgId, orgId), eq(loads.status, "delivered"), gte(loads.updatedAt, weekStart), lte(loads.updatedAt, weekEnd)));
 
   // Get verified carriers for filter
-  const verifiedCarriers = await db.select({ id: carriers.id, legalName: carriers.legalName }).from(carriers).where(eq(carriers.status, "verified"));
+  const verifiedCarriers = await db.select({ id: carriers.id, legalName: carriers.legalName }).from(carriers).where(and(eq(carriers.orgId, orgId), eq(carriers.status, "verified")));
 
   return (
     <div className="space-y-6">
@@ -175,15 +175,25 @@ export default async function LoadsPage({ searchParams }: { searchParams: Promis
       </div>
 
       {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">Showing {offset + 1} to {Math.min(offset + perPage, totalLoads)} of {totalLoads} loads</p>
-          <div className="flex gap-2">
-            {page > 1 && <Link href={"?page=" + (page - 1) + (sp.search ? "&search=" + sp.search : "") + (sp.status ? "&status=" + sp.status : "")}><Button variant="outline" size="sm">Previous</Button></Link>}
-            {page < totalPages && <Link href={"?page=" + (page + 1) + (sp.search ? "&search=" + sp.search : "") + (sp.status ? "&status=" + sp.status : "")}><Button variant="outline" size="sm">Next</Button></Link>}
+      {totalPages > 1 && (() => {
+        const buildPageUrl = (p: number) => {
+          const params = new URLSearchParams();
+          params.set("page", String(p));
+          if (sp.search) params.set("search", sp.search);
+          if (sp.status) params.set("status", sp.status);
+          if (sp.carrier) params.set("carrier", sp.carrier);
+          return "?" + params.toString();
+        };
+        return (
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-muted-foreground">Showing {offset + 1} to {Math.min(offset + perPage, totalLoads)} of {totalLoads} loads</p>
+            <div className="flex gap-2">
+              {page > 1 && <Link href={buildPageUrl(page - 1)}><Button variant="outline" size="sm">Previous</Button></Link>}
+              {page < totalPages && <Link href={buildPageUrl(page + 1)}><Button variant="outline" size="sm">Next</Button></Link>}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
