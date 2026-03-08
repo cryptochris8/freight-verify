@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { getStripe, upsertSubscription, type PlanTier } from "@/lib/stripe/client";
 import { db } from "@/lib/db";
-import { subscriptions, organizations } from "@/lib/db/schema";
+import { subscriptions, organizations, stripeWebhookEvents } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import type Stripe from "stripe";
 
@@ -28,6 +28,17 @@ export async function POST(request: Request) {
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error("Stripe webhook signature verification failed:", message);
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
+  }
+
+  // Idempotency check: skip if this event was already processed
+  const [existing] = await db
+    .select({ id: stripeWebhookEvents.id })
+    .from(stripeWebhookEvents)
+    .where(eq(stripeWebhookEvents.stripeEventId, event.id))
+    .limit(1);
+
+  if (existing) {
+    return NextResponse.json({ received: true });
   }
 
   try {
@@ -112,6 +123,12 @@ export async function POST(request: Request) {
     console.error(`[STRIPE] Error processing webhook ${event.type}:`, error);
     return NextResponse.json({ error: "Webhook handler failed" }, { status: 500 });
   }
+
+  // Record event as processed
+  await db.insert(stripeWebhookEvents).values({
+    stripeEventId: event.id,
+    eventType: event.type,
+  });
 
   return NextResponse.json({ received: true });
 }

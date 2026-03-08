@@ -4,14 +4,14 @@ import { loadCreateSchema } from "@/lib/validation/schemas";
 import { rateLimit } from "@/lib/rate-limit";
 import { db } from "@/lib/db";
 import { loads, organizations } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, count } from "drizzle-orm";
 import { createChainedEvent } from "@/lib/events/create-event";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const { orgId: clerkOrgId } = await auth();
     if (!clerkOrgId) {
-      return NextResponse.json({ loads: [] });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const [org] = await db
@@ -21,15 +21,25 @@ export async function GET() {
       .limit(1);
 
     if (!org) {
-      return NextResponse.json({ loads: [] });
+      return NextResponse.json({ error: "Organization not found" }, { status: 404 });
     }
 
-    const orgLoads = await db
+    const url = new URL(request.url);
+    const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
+    const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") || "20", 10)));
+    const offset = (page - 1) * limit;
+
+    const [totalResult] = await db.select({ value: count() }).from(loads).where(eq(loads.orgId, org.id));
+    const total = totalResult?.value ?? 0;
+
+    const items = await db
       .select()
       .from(loads)
-      .where(eq(loads.orgId, org.id));
+      .where(eq(loads.orgId, org.id))
+      .limit(limit)
+      .offset(offset);
 
-    return NextResponse.json({ loads: orgLoads });
+    return NextResponse.json({ items, total, page, totalPages: Math.ceil(total / limit) });
   } catch (error) {
     console.error("[LOADS GET]", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { carriers } from "@/lib/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, count } from "drizzle-orm";
 import { resolveOrgId } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,8 +32,17 @@ function getStatusVariant(status: string | null) {
   }
 }
 
-export default async function CarriersPage() {
+interface SearchParams {
+  page?: string;
+}
+
+export default async function CarriersPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  const sp = await searchParams;
   const { orgId } = await resolveOrgId();
+
+  const page = parseInt(sp.page || "1", 10);
+  const perPage = 20;
+  const offset = (page - 1) * perPage;
 
   const carrierList = await db
     .select({
@@ -47,7 +56,13 @@ export default async function CarriersPage() {
     })
     .from(carriers)
     .where(eq(carriers.orgId, orgId))
-    .orderBy(desc(carriers.createdAt));
+    .orderBy(desc(carriers.createdAt))
+    .limit(perPage)
+    .offset(offset);
+
+  const [totalResult] = await db.select({ value: count() }).from(carriers).where(eq(carriers.orgId, orgId));
+  const totalCarriers = totalResult?.value ?? 0;
+  const totalPages = Math.ceil(totalCarriers / perPage);
 
   return (
     <div className="space-y-6">
@@ -112,6 +127,23 @@ export default async function CarriersPage() {
           </TableBody>
         </Table>
       </div>
+
+      {totalPages > 1 && (() => {
+        const buildPageUrl = (p: number) => {
+          const params = new URLSearchParams();
+          params.set("page", String(p));
+          return "?" + params.toString();
+        };
+        return (
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-muted-foreground">Showing {offset + 1} to {Math.min(offset + perPage, totalCarriers)} of {totalCarriers} carriers</p>
+            <div className="flex gap-2">
+              {page > 1 && <Link href={buildPageUrl(page - 1)}><Button variant="outline" size="sm">Previous</Button></Link>}
+              {page < totalPages && <Link href={buildPageUrl(page + 1)}><Button variant="outline" size="sm">Next</Button></Link>}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

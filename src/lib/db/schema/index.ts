@@ -341,3 +341,11 @@ export const onboardingProgress = pgTable('onboarding_progress', {
 export const onboardingProgressRelations = relations(onboardingProgress, ({ one }) => ({
   organization: one(organizations, { fields: [onboardingProgress.orgId], references: [organizations.id] }),
 }));
+
+// Stripe webhook event deduplication
+export const stripeWebhookEvents = pgTable('stripe_webhook_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  stripeEventId: text('stripe_event_id').unique().notNull(),
+  eventType: varchar('event_type', { length: 100 }).notNull(),
+  processedAt: timestamp('processed_at', { withTimezone: true }).defaultNow(),
+});
