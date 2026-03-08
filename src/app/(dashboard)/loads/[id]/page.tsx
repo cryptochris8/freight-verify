@@ -87,11 +87,24 @@ export default async function LoadDetailPage({ params }: { params: Promise<{ id:
       {load.status === "accepted" && !verification && <GeneratePickupCode loadId={id} />}
 
       {load.status === "accepted" && verification && verification.verificationStatus === "pending" && (
-        <Card><CardContent className="py-4">
+        <Card><CardContent className="py-4 space-y-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-blue-600" /><span className="font-medium">Verification code generated</span></div>
             <a href={"/verify/" + id} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline">View Dock Verification Page</a>
           </div>
+          {verification.smsStatus === "failed" && (
+            <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 dark:bg-red-950/20 rounded-md px-3 py-2">
+              <span className="font-medium">SMS delivery failed:</span> {verification.smsError || "Unknown error"}
+            </div>
+          )}
+          {verification.smsStatus === "not_configured" && (
+            <div className="flex items-center gap-2 text-sm text-amber-600 bg-amber-50 dark:bg-amber-950/20 rounded-md px-3 py-2">
+              SMS not configured. Code must be shared manually with the driver.
+            </div>
+          )}
+          {verification.smsStatus === "sent" && (
+            <div className="text-sm text-green-600">SMS sent to driver successfully.</div>
+          )}
         </CardContent></Card>
       )}
 

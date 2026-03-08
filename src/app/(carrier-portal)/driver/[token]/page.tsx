@@ -4,7 +4,6 @@ import { eq, desc } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { MapPin, Calendar, Truck } from "lucide-react";
 import { format } from "date-fns";
 import { DriverArrivalClient } from "@/components/verification/driver-arrival-client";
@@ -12,9 +11,8 @@ import { DriverArrivalClient } from "@/components/verification/driver-arrival-cl
 export default async function DriverLandingPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
 
-  // Find load by ID (token is the loadId for now)
-  // TODO: Use a separate driver token for security
-  const [load] = await db.select().from(loads).where(eq(loads.id, token)).limit(1);
+  // Look up by secure driver token (not loadId)
+  const [load] = await db.select().from(loads).where(eq(loads.driverToken, token)).limit(1);
   if (!load) notFound();
 
   let carrier = null;

@@ -4,10 +4,10 @@ import { eq, and, desc } from "drizzle-orm";
 import { resolveOrgId } from "@/lib/auth";
 import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Truck, ShieldCheck, RefreshCw } from "lucide-react";
+import { Truck, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { CarrierTabs } from "@/components/carriers/carrier-tabs";
+import { ReverifyButton } from "@/components/carriers/reverify-button";
 
 function getStatusVariant(status: string | null) {
   switch (status) {
@@ -61,10 +61,7 @@ export default async function CarrierDetailPage({ params }: { params: Promise<{ 
           {carrier.dbaName && <p className="text-muted-foreground mt-1">DBA: {carrier.dbaName}</p>}
           <p className="text-sm text-muted-foreground">DOT# {carrier.dotNumber} | MC# {carrier.mcNumber || "N/A"}</p>
         </div>
-        <Button variant="outline" className="gap-2">
-          <RefreshCw className="h-4 w-4" />
-          Re-verify with FMCSA
-        </Button>
+        <ReverifyButton carrierId={id} />
       </div>
 
       <CarrierTabs

@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { loads, organizations } from "@/lib/db/schema";
 import { eq, count } from "drizzle-orm";
 import { createChainedEvent } from "@/lib/events/create-event";
+import { writeAuditLog } from "@/lib/audit";
 
 export async function GET(request: Request) {
   try {
@@ -116,6 +117,16 @@ export async function POST(request: Request) {
       actorId: userId,
       actorType: "user",
       description: "Load " + data.referenceNumber + " created",
+      metadata: { referenceNumber: data.referenceNumber },
+    });
+
+    await writeAuditLog({
+      orgId: org.id,
+      entityType: "load",
+      entityId: load.id,
+      action: "load_created",
+      actorId: userId,
+      actorType: "user",
       metadata: { referenceNumber: data.referenceNumber },
     });
 

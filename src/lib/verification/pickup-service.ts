@@ -137,18 +137,26 @@ export async function sendPickupOtp(
         to: phoneNumber,
       });
       console.log(`[SMS] OTP sent to ${phoneNumber.slice(0, 3)}***${phoneNumber.slice(-4)} via Twilio`);
+      await db
+        .update(pickupVerifications)
+        .set({ driverPhone: phoneNumber, smsStatus: "sent", smsError: null, updatedAt: new Date() })
+        .where(eq(pickupVerifications.id, verificationId));
     } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Unknown Twilio error";
       console.error("[SMS] Twilio send failed:", err);
+      await db
+        .update(pickupVerifications)
+        .set({ driverPhone: phoneNumber, smsStatus: "failed", smsError: errMsg, updatedAt: new Date() })
+        .where(eq(pickupVerifications.id, verificationId));
       return { success: false, error: "Failed to send SMS via Twilio" };
     }
   } else {
     console.log(`[SMS FALLBACK] Twilio env vars not configured. Would send to: ${phoneNumber}, Message: "${smsBody}"`);
+    await db
+      .update(pickupVerifications)
+      .set({ driverPhone: phoneNumber, smsStatus: "not_configured", updatedAt: new Date() })
+      .where(eq(pickupVerifications.id, verificationId));
   }
-
-  await db
-    .update(pickupVerifications)
-    .set({ driverPhone: phoneNumber, updatedAt: new Date() })
-    .where(eq(pickupVerifications.id, verificationId));
 
   // Create hash-chained load event using atomic transaction
   await createChainedEvent({

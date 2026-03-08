@@ -148,10 +148,12 @@ export async function acceptTender(loadId: string, token: string) {
   const result = await transitionStatus(loadId, "accepted", null, load.orgId, { acceptedVia: "carrier_portal" });
   if (!result.success) return { success: false as const, error: result.error || "Failed" };
 
-  await db.update(loads).set({ tenderToken: null, tenderExpiresAt: null }).where(eq(loads.id, loadId));
+  // Generate secure driver token for driver portal access
+  const driverToken = crypto.randomBytes(32).toString("hex");
+  await db.update(loads).set({ tenderToken: null, tenderExpiresAt: null, driverToken }).where(eq(loads.id, loadId));
 
   revalidatePath("/loads");
-  return { success: true as const };
+  return { success: true as const, driverToken };
 }
 
 export async function declineTender(loadId: string, token: string, reason: string) {

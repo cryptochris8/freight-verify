@@ -3,6 +3,7 @@ import { Settings, CreditCard } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { getSubscriptionStatus } from "@/app/actions/billing";
 import { BillingCard } from "@/components/settings/billing-card";
+import { OrgSettingsForm } from "@/components/settings/org-settings-form";
 
 export default async function SettingsPage() {
   const billingData = await getSubscriptionStatus();
@@ -19,7 +20,7 @@ export default async function SettingsPage() {
           <CardTitle className="flex items-center gap-2"><Settings className="h-5 w-5" /> Organization Settings</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-muted-foreground text-sm">Organization configuration and team management coming soon.</p>
+          <OrgSettingsForm />
         </CardContent>
       </Card>
 

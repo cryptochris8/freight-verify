@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { organizations } from "@/lib/db/schema";
-import { dailyFmcsaRecheck, dailyDocExpirationCheck } from "@/lib/cron/scheduled-tasks";
+import { dailyFmcsaRecheck, dailyDocExpirationCheck, dailyDigestSend } from "@/lib/cron/scheduled-tasks";
 
 export const dynamic = "force-dynamic";
 
@@ -15,13 +15,17 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const results: { orgId: string; fmcsa: string; docs: string }[] = [];
+  const results: { orgId: string; fmcsa: string; docs: string; digest: string }[] = [];
 
   try {
-    const allOrgs = await db.select({ id: organizations.id }).from(organizations);
+    const allOrgs = await db.select({
+      id: organizations.id,
+      digestEnabled: organizations.digestEnabled,
+      digestRecipientEmails: organizations.digestRecipientEmails,
+    }).from(organizations);
 
     for (const org of allOrgs) {
-      const orgResult = { orgId: org.id, fmcsa: "ok", docs: "ok" };
+      const orgResult = { orgId: org.id, fmcsa: "ok", docs: "ok", digest: "skipped" };
       try {
         await dailyFmcsaRecheck(org.id);
       } catch (err) {
@@ -33,6 +37,16 @@ export async function GET() {
       } catch (err) {
         console.error(`[CRON] Doc expiration check failed for org ${org.id}:`, err);
         orgResult.docs = "error";
+      }
+      // Send daily digest if enabled and recipients are configured
+      if (org.digestEnabled && org.digestRecipientEmails && org.digestRecipientEmails.length > 0) {
+        try {
+          const digestResult = await dailyDigestSend(org.id, org.digestRecipientEmails);
+          orgResult.digest = digestResult.success ? "sent" : "error";
+        } catch (err) {
+          console.error(`[CRON] Digest send failed for org ${org.id}:`, err);
+          orgResult.digest = "error";
+        }
       }
       results.push(orgResult);
     }

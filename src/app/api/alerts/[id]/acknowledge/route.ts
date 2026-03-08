@@ -4,6 +4,7 @@ import { alerts } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { resolveOrgId } from "@/lib/auth";
 import { alertAcknowledgeSchema } from "@/lib/validation/schemas";
+import { writeAuditLog } from "@/lib/audit";
 
 export async function POST(
   request: NextRequest,
@@ -47,6 +48,16 @@ export async function POST(
       acknowledgeNote: notes || null,
     })
     .where(and(eq(alerts.id, id), eq(alerts.orgId, orgId)));
+
+  await writeAuditLog({
+    orgId,
+    entityType: "alert",
+    entityId: id,
+    action: "alert_acknowledged",
+    actorId: userId,
+    actorType: "user",
+    metadata: { alertType: alert.alertType, severity: alert.severity },
+  });
 
   return NextResponse.json({ success: true });
 }

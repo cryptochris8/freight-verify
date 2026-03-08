@@ -3,7 +3,9 @@
 import { useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { MapPin, AlertTriangle, Loader2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { MapPin, AlertTriangle, Loader2, PenLine } from "lucide-react";
 
 interface GeoData {
   lat: number;
@@ -24,6 +26,9 @@ export function GeoCapture({ originLat, originLng, onCapture, maxMiles = 5 }: Ge
   const [geoData, setGeoData] = useState<GeoData | null>(null);
   const [distance, setDistance] = useState<number | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
+  const [manualMode, setManualMode] = useState(false);
+  const [manualLat, setManualLat] = useState("");
+  const [manualLng, setManualLng] = useState("");
 
   function captureLocation() {
     if (!navigator.geolocation) {
@@ -75,6 +80,34 @@ export function GeoCapture({ originLat, originLng, onCapture, maxMiles = 5 }: Ge
     );
   }
 
+  function submitManualLocation() {
+    const lat = parseFloat(manualLat);
+    const lng = parseFloat(manualLng);
+    if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return;
+    }
+    const data: GeoData = { lat, lng, accuracy: 0, timestamp: Date.now() };
+    setGeoData(data);
+    setStatus("success");
+    setManualMode(false);
+
+    if (originLat && originLng) {
+      const R = 3958.8;
+      const dLat = ((parseFloat(originLat) - lat) * Math.PI) / 180;
+      const dLng = ((parseFloat(originLng) - lng) * Math.PI) / 180;
+      const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos((lat * Math.PI) / 180) *
+          Math.cos((parseFloat(originLat) * Math.PI) / 180) *
+          Math.sin(dLng / 2) *
+          Math.sin(dLng / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      setDistance(Math.round(R * c * 10) / 10);
+    }
+
+    onCapture(data);
+  }
+
   useEffect(() => {
     captureLocation();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -114,15 +147,61 @@ export function GeoCapture({ originLat, originLng, onCapture, maxMiles = 5 }: Ge
           </div>
         )}
 
-        {(status === "denied" || status === "error") && (
+        {(status === "denied" || status === "error") && !manualMode && (
           <div className="space-y-3">
             <div className="flex items-start gap-2 text-yellow-600">
               <AlertTriangle className="h-5 w-5 mt-0.5" />
               <span className="text-sm">{errorMsg}</span>
             </div>
-            <Button variant="outline" size="sm" onClick={captureLocation}>
-              Retry Location
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={captureLocation}>
+                Retry Location
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setManualMode(true)}>
+                <PenLine className="h-4 w-4 mr-1" />
+                Enter Manually
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {manualMode && (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Enter your current GPS coordinates. You can find these in your phone&apos;s maps app.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="manual-lat">Latitude</Label>
+                <Input
+                  id="manual-lat"
+                  type="number"
+                  step="any"
+                  placeholder="e.g. 40.7128"
+                  value={manualLat}
+                  onChange={(e) => setManualLat(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="manual-lng">Longitude</Label>
+                <Input
+                  id="manual-lng"
+                  type="number"
+                  step="any"
+                  placeholder="e.g. -74.0060"
+                  value={manualLng}
+                  onChange={(e) => setManualLng(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={submitManualLocation}>
+                Submit Location
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setManualMode(false)}>
+                Cancel
+              </Button>
+            </div>
           </div>
         )}
 

@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { carriers, organizations } from "@/lib/db/schema";
 import { eq, count } from "drizzle-orm";
 import { checkAccess } from "@/lib/billing/feature-gate";
+import { writeAuditLog } from "@/lib/audit";
 
 export async function GET(request: Request) {
   try {
@@ -103,6 +104,16 @@ export async function POST(request: Request) {
         status: "pending",
       })
       .returning();
+
+    await writeAuditLog({
+      orgId: org.id,
+      entityType: "carrier",
+      entityId: carrier.id,
+      action: "carrier_created",
+      actorId: userId,
+      actorType: "user",
+      metadata: { dotNumber: data.dotNumber, legalName: data.legalName },
+    });
 
     return NextResponse.json({ carrier }, { status: 201 });
   } catch (error) {
