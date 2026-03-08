@@ -2,13 +2,17 @@
 
 import { db } from "@/lib/db";
 import { alerts, loads, carriers } from "@/lib/db/schema";
-import { eq, and, count, sql, gte, desc } from "drizzle-orm";
-import { auth } from "@clerk/nextjs/server";
+import { eq, and, count, sql, gte, desc, inArray } from "drizzle-orm";
+import { resolveOrgId } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 
 export async function acknowledgeAlert(alertId: string, notes: string) {
-  const { userId, orgId } = await auth();
-  if (!userId || !orgId) return { success: false as const, error: "Unauthorized" };
+  let userId: string, orgId: string;
+  try {
+    ({ userId, orgId } = await resolveOrgId());
+  } catch {
+    return { success: false as const, error: "Unauthorized" };
+  }
 
   const [alert] = await db
     .select()
@@ -35,21 +39,23 @@ export async function acknowledgeAlert(alertId: string, notes: string) {
 }
 
 export async function bulkAcknowledgeAlerts(alertIds: string[], notes: string) {
-  const { userId, orgId } = await auth();
-  if (!userId || !orgId) return { success: false as const, error: "Unauthorized" };
+  let userId: string, orgId: string;
+  try {
+    ({ userId, orgId } = await resolveOrgId());
+  } catch {
+    return { success: false as const, error: "Unauthorized" };
+  }
   if (alertIds.length === 0) return { success: false as const, error: "No alerts selected" };
 
-  for (const alertId of alertIds) {
-    await db
-      .update(alerts)
-      .set({
-        status: "acknowledged",
-        acknowledgedBy: userId,
-        acknowledgedAt: new Date(),
-        acknowledgeNote: notes || null,
-      })
-      .where(and(eq(alerts.id, alertId), eq(alerts.orgId, orgId)));
-  }
+  await db
+    .update(alerts)
+    .set({
+      status: "acknowledged",
+      acknowledgedBy: userId,
+      acknowledgedAt: new Date(),
+      acknowledgeNote: notes || null,
+    })
+    .where(and(inArray(alerts.id, alertIds), eq(alerts.orgId, orgId)));
 
   revalidatePath("/alerts");
   revalidatePath("/");
@@ -92,8 +98,12 @@ export async function getAlertStats(orgId: string) {
 }
 
 export async function getAlertDetail(alertId: string) {
-  const { orgId } = await auth();
-  if (!orgId) return null;
+  let orgId: string;
+  try {
+    ({ orgId } = await resolveOrgId());
+  } catch {
+    return null;
+  }
 
   const [alert] = await db
     .select()

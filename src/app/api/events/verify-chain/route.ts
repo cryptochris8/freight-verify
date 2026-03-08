@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { loadEvents } from "@/lib/db/schema";
 import { eq, asc } from "drizzle-orm";
-import { auth } from "@clerk/nextjs/server";
+import { resolveOrgId } from "@/lib/auth";
 import { verifyChain } from "@/lib/events/hash-chain";
 
 export async function GET(request: NextRequest) {
-  const { orgId } = await auth();
-  if (!orgId) {
+  let orgId: string;
+  try {
+    ({ orgId } = await resolveOrgId());
+  } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

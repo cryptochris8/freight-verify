@@ -1,15 +1,13 @@
 import { db } from "@/lib/db";
 import { carriers } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { LoadCreationForm } from "@/components/loads/load-creation-form";
-import { auth } from "@clerk/nextjs/server";
-import { redirect } from "next/navigation";
+import { resolveOrgId } from "@/lib/auth";
 
 export default async function NewLoadPage() {
-  const { userId, orgId } = await auth();
-  if (!userId || !orgId) redirect("/login");
+  const { userId, orgId } = await resolveOrgId();
 
-  // Only fetch verified carriers
+  // Only fetch verified carriers for this org
   const verifiedCarriers = await db
     .select({
       id: carriers.id,
@@ -17,7 +15,7 @@ export default async function NewLoadPage() {
       dotNumber: carriers.dotNumber,
     })
     .from(carriers)
-    .where(eq(carriers.status, "verified"));
+    .where(and(eq(carriers.orgId, orgId), eq(carriers.status, "verified")));
 
   return (
     <div className="space-y-6">

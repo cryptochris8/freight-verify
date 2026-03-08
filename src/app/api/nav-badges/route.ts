@@ -2,12 +2,14 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { alerts, loadEvents } from "@/lib/db/schema";
 import { eq, and, count, gte } from "drizzle-orm";
-import { auth } from "@clerk/nextjs/server";
+import { resolveOrgId } from "@/lib/auth";
 import { startOfDay } from "date-fns";
 
 export async function GET() {
-  const { orgId } = await auth();
-  if (!orgId) {
+  let orgId: string;
+  try {
+    ({ orgId } = await resolveOrgId());
+  } catch {
     return NextResponse.json({ alerts: 0, events: 0 });
   }
 

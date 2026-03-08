@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { auth, currentUser } from "@clerk/nextjs/server";
+import { currentUser } from "@clerk/nextjs/server";
+import { resolveOrgId } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { loadMessages, loads } from "@/lib/db/schema";
 import { eq, and, asc } from "drizzle-orm";
@@ -11,8 +12,12 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const { userId, orgId } = await auth();
-    if (!userId || !orgId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    let orgId: string;
+    try {
+      ({ orgId } = await resolveOrgId());
+    } catch {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     // Validate load belongs to this org
     const [load] = await db.select({ id: loads.id }).from(loads)
@@ -38,8 +43,12 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const { userId, orgId } = await auth();
-    if (!userId || !orgId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    let userId: string, orgId: string;
+    try {
+      ({ userId, orgId } = await resolveOrgId());
+    } catch {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     const user = await currentUser();
     const body = await request.json();
@@ -53,8 +62,8 @@ export async function POST(
 
     const { content } = parsed.data;
 
-    // Verify load exists
-    const [load] = await db.select().from(loads).where(eq(loads.id, id)).limit(1);
+    // Verify load exists and belongs to this org
+    const [load] = await db.select().from(loads).where(and(eq(loads.id, id), eq(loads.orgId, orgId))).limit(1);
     if (!load) return NextResponse.json({ error: "Load not found" }, { status: 404 });
 
     const authorName = user ? (user.firstName + " " + (user.lastName || "")).trim() : "Unknown";

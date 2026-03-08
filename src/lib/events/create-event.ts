@@ -20,14 +20,18 @@ export interface CreateEventInput {
  * Creates a hash-chained event atomically using a database transaction.
  * This prevents race conditions where concurrent event creation could
  * break the hash chain.
+ *
+ * If an external transaction is provided, the event is created within that
+ * transaction (no nested transaction). Otherwise, a new transaction is used.
  */
-export async function createChainedEvent(input: CreateEventInput) {
-  return await db.transaction(async (tx) => {
+export async function createChainedEvent(input: CreateEventInput, externalTx?: Parameters<Parameters<typeof db.transaction>[0]>[0]) {
+  const execute = async (tx: Parameters<Parameters<typeof db.transaction>[0]>[0]) => {
     const [lastEvent] = await tx
       .select({ eventHash: loadEvents.eventHash })
       .from(loadEvents)
       .where(eq(loadEvents.loadId, input.loadId))
       .orderBy(desc(loadEvents.id))
+      .for('update')
       .limit(1);
 
     const prevHash = lastEvent?.eventHash ?? null;
@@ -64,5 +68,10 @@ export async function createChainedEvent(input: CreateEventInput) {
     }).returning();
 
     return event;
-  });
+  };
+
+  if (externalTx) {
+    return await execute(externalTx);
+  }
+  return await db.transaction(execute);
 }

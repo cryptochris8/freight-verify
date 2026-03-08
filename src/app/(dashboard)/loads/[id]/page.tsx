@@ -1,8 +1,8 @@
 import { db } from "@/lib/db";
 import { loads, carriers, loadEvents, loadDocuments, loadMessages, pickupVerifications } from "@/lib/db/schema";
-import { eq, desc, asc } from "drizzle-orm";
-import { auth } from "@clerk/nextjs/server";
-import { redirect, notFound } from "next/navigation";
+import { eq, and, desc, asc } from "drizzle-orm";
+import { resolveOrgId } from "@/lib/auth";
+import { notFound } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -29,10 +29,9 @@ function getStatusVariant(status: string) {
 
 export default async function LoadDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { userId, orgId } = await auth();
-  if (!userId || !orgId) redirect("/login");
+  const { userId, orgId } = await resolveOrgId();
 
-  const [load] = await db.select().from(loads).where(eq(loads.id, id)).limit(1);
+  const [load] = await db.select().from(loads).where(and(eq(loads.id, id), eq(loads.orgId, orgId))).limit(1);
   if (!load) notFound();
 
   let carrier = null;

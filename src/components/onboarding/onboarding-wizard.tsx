@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Check, Truck, Package, Shield, ArrowRight, SkipForward, PartyPopper } from "lucide-react";
-import { completeStep, markOnboardingComplete } from "@/app/actions/onboarding";
+import { completeStep, markOnboardingComplete, type OnboardingStep } from "@/app/actions/onboarding";
 import Link from "next/link";
 
 interface OnboardingWizardProps {
@@ -31,7 +31,7 @@ export function OnboardingWizard({ completedSteps, currentStep }: OnboardingWiza
 
   const handleNext = () => {
     startTransition(async () => {
-      await completeStep(current.id as any);
+      await completeStep(current.id as OnboardingStep);
       if (step === totalSteps - 1) {
         await markOnboardingComplete();
         window.location.href = "/";
@@ -43,7 +43,7 @@ export function OnboardingWizard({ completedSteps, currentStep }: OnboardingWiza
 
   const handleSkip = () => {
     startTransition(async () => {
-      await completeStep(current.id as any);
+      await completeStep(current.id as OnboardingStep);
       if (step < totalSteps - 1) { setStep(step + 1); }
     });
   };

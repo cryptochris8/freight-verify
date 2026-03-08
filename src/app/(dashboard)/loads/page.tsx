@@ -1,8 +1,7 @@
 import { db } from "@/lib/db";
 import { loads, carriers } from "@/lib/db/schema";
 import { eq, desc, and, like, sql, gte, lte, count, inArray } from "drizzle-orm";
-import { auth } from "@clerk/nextjs/server";
-import { redirect } from "next/navigation";
+import { resolveOrgId } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,8 +32,7 @@ interface SearchParams {
 
 export default async function LoadsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const sp = await searchParams;
-  const { userId, orgId } = await auth();
-  if (!userId || !orgId) redirect("/login");
+  const { userId, orgId } = await resolveOrgId();
 
   const page = parseInt(sp.page || "1", 10);
   const perPage = 10;
@@ -45,7 +43,8 @@ export default async function LoadsPage({ searchParams }: { searchParams: Promis
   if (sp.search) conditions.push(like(loads.referenceNumber, "%" + sp.search + "%"));
   if (sp.status) {
     const statuses = sp.status.split(",").filter(Boolean);
-    if (statuses.length > 0) conditions.push(inArray(loads.status, statuses as any));
+    if (statuses.length > 0) conditions.push(inArray(loads.status, statuses as (typeof loads.status.enumValues)[number][]));
+
   }
   if (sp.carrier) conditions.push(eq(loads.carrierId, sp.carrier));
 

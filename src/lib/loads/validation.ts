@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { randomInt } from "crypto";
 
 export const loadFormSchema = z.object({
   referenceNumber: z.string().min(1, "Reference number is required").max(50),
@@ -26,6 +27,6 @@ export function generateReferenceNumber(): string {
   const dateStr = now.getFullYear().toString() +
     (now.getMonth() + 1).toString().padStart(2, "0") +
     now.getDate().toString().padStart(2, "0");
-  const rand = Math.floor(1000 + Math.random() * 9000).toString();
+  const rand = randomInt(100000, 1000000).toString();
   return "FV-" + dateStr + "-" + rand;
 }

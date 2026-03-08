@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { alerts } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { auth } from "@clerk/nextjs/server";
+import { resolveOrgId } from "@/lib/auth";
 import { alertAcknowledgeSchema } from "@/lib/validation/schemas";
 
 export async function POST(
@@ -10,8 +10,10 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const { userId, orgId } = await auth();
-  if (!userId || !orgId) {
+  let userId: string, orgId: string;
+  try {
+    ({ userId, orgId } = await resolveOrgId());
+  } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

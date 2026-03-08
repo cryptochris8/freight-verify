@@ -1,8 +1,8 @@
 import { db } from "@/lib/db";
 import { carriers, carrierDocuments, carrierVerifications, loads, alerts } from "@/lib/db/schema";
 import { eq, and, desc } from "drizzle-orm";
-import { auth } from "@clerk/nextjs/server";
-import { redirect, notFound } from "next/navigation";
+import { resolveOrgId } from "@/lib/auth";
+import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Truck, ShieldCheck, RefreshCw } from "lucide-react";
@@ -20,8 +20,7 @@ function getStatusVariant(status: string | null) {
 
 export default async function CarrierDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { userId, orgId } = await auth();
-  if (!userId || !orgId) redirect("/login");
+  const { userId, orgId } = await resolveOrgId();
 
   const [carrier] = await db.select().from(carriers)
     .where(and(eq(carriers.id, id), eq(carriers.orgId, orgId))).limit(1);

@@ -1,14 +1,14 @@
 import { db } from "@/lib/db";
 import { alerts, loads, carriers } from "@/lib/db/schema";
 import { eq, and, desc, gte, lte, count } from "drizzle-orm";
-import { auth } from "@clerk/nextjs/server";
-import { redirect } from "next/navigation";
+import { resolveOrgId } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, ShieldAlert, Bell } from "lucide-react";
 import Link from "next/link";
 import { AlertTable } from "@/components/alerts/alert-table";
+import { AlertFilters } from "@/components/alerts/alert-filters";
 import { getAlertStats } from "@/app/actions/alerts";
 
 interface SearchParams {
@@ -26,8 +26,7 @@ export default async function AlertsPage({
   searchParams: Promise<SearchParams>;
 }) {
   const params = await searchParams;
-  const { userId, orgId } = await auth();
-  if (!userId || !orgId) redirect("/login");
+  const { userId, orgId } = await resolveOrgId();
 
   const page = parseInt(params.page || "1", 10);
   const perPage = 25;
@@ -96,15 +95,6 @@ export default async function AlertsPage({
     carrierName: a.carrierName ?? null,
   }));
 
-  const alertTypes = [
-    { value: "carrier_substitution", label: "Carrier Substitution" },
-    { value: "domain_mismatch", label: "Domain Mismatch" },
-    { value: "off_location_pickup", label: "Off-Location Pickup" },
-    { value: "failed_verification", label: "Failed Verification" },
-    { value: "document_expiration", label: "Document Expiration" },
-    { value: "fmcsa_status_change", label: "FMCSA Status Change" },
-  ];
-
   return (
     <div className="space-y-6">
       <div>
@@ -166,34 +156,7 @@ export default async function AlertsPage({
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-3">
-        <select
-          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-          defaultValue={params.severity || ""}
-        >
-          <option value="">All Severities</option>
-          <option value="critical">Critical</option>
-          <option value="high">High</option>
-          <option value="medium">Medium</option>
-        </select>
-        <select
-          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-          defaultValue={params.type || ""}
-        >
-          <option value="">All Types</option>
-          {alertTypes.map((t) => (
-            <option key={t.value} value={t.value}>{t.label}</option>
-          ))}
-        </select>
-        <select
-          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-          defaultValue={params.status || ""}
-        >
-          <option value="">All Statuses</option>
-          <option value="new">New</option>
-          <option value="acknowledged">Acknowledged</option>
-        </select>
-      </div>
+      <AlertFilters />
 
       <AlertTable alerts={serialized} />
 

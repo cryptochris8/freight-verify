@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { resolveOrgId } from "@/lib/auth";
 import { tenderLoad } from "@/app/actions/loads";
 import { rateLimit } from "@/lib/rate-limit";
 
@@ -9,9 +9,10 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const { userId, orgId } = await auth();
-
-    if (!userId || !orgId) {
+    let userId: string, orgId: string;
+    try {
+      ({ userId, orgId } = await resolveOrgId());
+    } catch {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

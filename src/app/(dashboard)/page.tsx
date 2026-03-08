@@ -1,8 +1,7 @@
 import { db } from "@/lib/db";
 import { loads, carriers, alerts, loadEvents, pickupVerifications } from "@/lib/db/schema";
 import { eq, count, and, asc, desc, lte, gte, inArray, lt, sql } from "drizzle-orm";
-import { auth } from "@clerk/nextjs/server";
-import { redirect } from "next/navigation";
+import { resolveOrgId } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Truck, Package, ShieldCheck, AlertTriangle, Clock, ArrowRight, CheckCircle2, TrendingUp, Activity } from "lucide-react";
@@ -21,8 +20,7 @@ function getStatusVariant(status: string) {
 }
 
 export default async function DashboardPage() {
-  const { userId, orgId } = await auth();
-  if (!userId || !orgId) redirect("/login");
+  const { userId, orgId } = await resolveOrgId();
 
   const now = new Date();
   const weekStart = startOfWeek(now);

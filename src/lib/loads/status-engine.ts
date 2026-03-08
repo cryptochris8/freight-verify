@@ -49,39 +49,41 @@ export async function transitionStatus(
   orgId: string,
   metadata?: Record<string, unknown>
 ): Promise<TransitionResult> {
-  const [load] = await db.select().from(loads).where(eq(loads.id, loadId)).limit(1);
-  if (!load) return { success: false, error: "Load not found" };
+  return await db.transaction(async (tx) => {
+    const [load] = await tx.select().from(loads).where(eq(loads.id, loadId)).for('update').limit(1);
+    if (!load) return { success: false, error: "Load not found" };
 
-  const currentStatus = load.status as LoadStatus;
+    const currentStatus = load.status as LoadStatus;
 
-  if (!isValidTransition(currentStatus, newStatus)) {
-    return { success: false, error: `Invalid transition from ${currentStatus} to ${newStatus}` };
-  }
+    if (!isValidTransition(currentStatus, newStatus)) {
+      return { success: false, error: `Invalid transition from ${currentStatus} to ${newStatus}` };
+    }
 
-  const requirementKey = `${currentStatus}->${newStatus}`;
-  const requirementCheck = TRANSITION_REQUIREMENTS[requirementKey];
-  if (requirementCheck) {
-    const error = requirementCheck(load);
-    if (error) return { success: false, error };
-  }
+    const requirementKey = `${currentStatus}->${newStatus}`;
+    const requirementCheck = TRANSITION_REQUIREMENTS[requirementKey];
+    if (requirementCheck) {
+      const error = requirementCheck(load);
+      if (error) return { success: false, error };
+    }
 
-  const now = new Date();
+    const now = new Date();
 
-  const [updatedLoad] = await db
-    .update(loads)
-    .set({ status: newStatus, updatedAt: now })
-    .where(eq(loads.id, loadId))
-    .returning();
+    const [updatedLoad] = await tx
+      .update(loads)
+      .set({ status: newStatus, updatedAt: now })
+      .where(eq(loads.id, loadId))
+      .returning();
 
-  const event = await createChainedEvent({
-    loadId,
-    orgId,
-    eventType: `status_change:${currentStatus}->${newStatus}`,
-    actorId,
-    actorType: actorId ? "user" : "system",
-    description: `Status changed from ${currentStatus} to ${newStatus}`,
-    metadata: { fromStatus: currentStatus, toStatus: newStatus, ...metadata },
+    const event = await createChainedEvent({
+      loadId,
+      orgId,
+      eventType: `status_change:${currentStatus}->${newStatus}`,
+      actorId,
+      actorType: actorId ? "user" : "system",
+      description: `Status changed from ${currentStatus} to ${newStatus}`,
+      metadata: { fromStatus: currentStatus, toStatus: newStatus, ...metadata },
+    }, tx);
+
+    return { success: true, load: updatedLoad, event };
   });
-
-  return { success: true, load: updatedLoad, event };
 }

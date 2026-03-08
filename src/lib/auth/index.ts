@@ -1,4 +1,8 @@
 import { auth, currentUser } from '@clerk/nextjs/server';
+import { cache } from 'react';
+import { db } from '@/lib/db';
+import { organizations } from '@/lib/db/schema';
+import { eq } from 'drizzle-orm';
 
 /**
  * Gets the current authenticated user ID and org ID.
@@ -38,3 +42,22 @@ export async function requireOrg() {
 
   return { userId, orgId };
 }
+
+/**
+ * Resolves Clerk's orgId string to the internal UUID.
+ * Uses React cache() for per-request deduplication.
+ */
+export const resolveOrgId = cache(async () => {
+  const { userId, orgId: clerkOrgId } = await auth();
+  if (!userId) throw new Error('Unauthorized');
+  if (!clerkOrgId) throw new Error('No organization selected');
+
+  const [org] = await db
+    .select({ id: organizations.id })
+    .from(organizations)
+    .where(eq(organizations.clerkOrgId, clerkOrgId))
+    .limit(1);
+  if (!org) throw new Error('Organization not found');
+
+  return { userId, clerkOrgId, orgId: org.id };
+});

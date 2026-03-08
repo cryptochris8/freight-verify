@@ -1,8 +1,7 @@
 import { db } from "@/lib/db";
 import { loadEvents, loads, carriers } from "@/lib/db/schema";
 import { eq, and, desc, gte, lte, like, or, count } from "drizzle-orm";
-import { auth } from "@clerk/nextjs/server";
-import { redirect } from "next/navigation";
+import { resolveOrgId } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Activity, Download } from "lucide-react";
@@ -26,8 +25,7 @@ export default async function EventsPage({
   searchParams: Promise<SearchParams>;
 }) {
   const params = await searchParams;
-  const { userId, orgId } = await auth();
-  if (!userId || !orgId) redirect("/login");
+  const { userId, orgId } = await resolveOrgId();
 
   const page = parseInt(params.page || "1", 10);
   const perPage = 25;

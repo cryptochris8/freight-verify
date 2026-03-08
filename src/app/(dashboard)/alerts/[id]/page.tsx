@@ -1,8 +1,8 @@
 import { db } from "@/lib/db";
 import { alerts, loads, carriers, loadEvents } from "@/lib/db/schema";
 import { eq, and, desc } from "drizzle-orm";
-import { auth } from "@clerk/nextjs/server";
-import { redirect, notFound } from "next/navigation";
+import { resolveOrgId } from "@/lib/auth";
+import { notFound } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
@@ -37,8 +37,7 @@ function getAlertIcon(alertType: string) {
 
 export default async function AlertDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { userId, orgId } = await auth();
-  if (!userId || !orgId) redirect("/login");
+  const { userId, orgId } = await resolveOrgId();
 
   const [alert] = await db.select().from(alerts)
     .where(and(eq(alerts.id, id), eq(alerts.orgId, orgId))).limit(1);
