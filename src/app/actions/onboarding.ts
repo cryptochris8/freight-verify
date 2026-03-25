@@ -131,7 +131,7 @@ export async function markOnboardingComplete() {
     await db.insert(onboardingProgress).values({
       orgId: org.id,
       userId,
-      completedSteps: ONBOARDING_STEPS as unknown as string[],
+      completedSteps: [...ONBOARDING_STEPS],
       isComplete: true,
     });
   }

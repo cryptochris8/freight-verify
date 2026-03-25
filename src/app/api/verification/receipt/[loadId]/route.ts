@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getVerificationStatus } from "@/app/actions/verification";
 import { Resend } from "resend";
+import { logger } from "@/lib/logger";
 
 export async function GET(
   _request: Request,
@@ -27,7 +28,7 @@ export async function GET(
       events: status.events,
     });
   } catch (error) {
-    console.error("Receipt fetch error:", error);
+    logger.error("RECEIPT", "Fetch failed", { error: String(error) });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -52,7 +53,7 @@ export async function POST(
 
     const resendApiKey = process.env.RESEND_API_KEY;
     if (!resendApiKey) {
-      console.log("[RECEIPT EMAIL] RESEND_API_KEY not configured. Would send to: " + email);
+      logger.info("RECEIPT_EMAIL", "RESEND_API_KEY not configured, email not sent", { to: email });
       return NextResponse.json({ success: true, message: "Receipt logged (email not configured)" });
     }
 
@@ -81,20 +82,20 @@ export async function POST(
 </div>`;
 
     const { error } = await resend.emails.send({
-      from: "FreightVerify <onboarding@resend.dev>",
+      from: process.env.EMAIL_FROM || "FreightVerify <onboarding@resend.dev>",
       to: [email],
       subject: `Verification Receipt - Load ${status.load?.referenceNumber ?? loadId}`,
       html,
     });
 
     if (error) {
-      console.error("[RECEIPT EMAIL] Resend error:", error);
+      logger.error("RECEIPT_EMAIL", "Resend send failed", { error: String(error) });
       return NextResponse.json({ error: "Failed to send receipt email" }, { status: 500 });
     }
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Receipt email error:", error);
+    logger.error("RECEIPT_EMAIL", "POST request failed", { error: String(error) });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

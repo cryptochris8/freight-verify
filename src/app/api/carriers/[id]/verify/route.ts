@@ -3,9 +3,10 @@ import { auth } from "@clerk/nextjs/server";
 import { db } from "@/lib/db";
 import { carriers, carrierVerifications, organizations, auditLog } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { lookupCarrier, clearCache } from "@/lib/fmcsa/client";
+import { lookupCarrier } from "@/lib/fmcsa/client";
 import { checkFmcsaStatusChange } from "@/lib/alerts/rules";
 import { alerts } from "@/lib/db/schema";
+import { logger } from "@/lib/logger";
 
 export async function POST(
   request: Request,
@@ -39,9 +40,7 @@ export async function POST(
       return NextResponse.json({ error: "Carrier not found" }, { status: 404 });
     }
 
-    // Clear cache so we get fresh data
-    clearCache(carrier.dotNumber);
-
+    // Re-verify: skip cache to get fresh data from FMCSA
     const result = await lookupCarrier(carrier.dotNumber);
 
     if (!result.success || !result.data) {
@@ -67,7 +66,7 @@ export async function POST(
 
     // Update carrier with fresh FMCSA data
     await db.update(carriers).set({
-      fmcsaSnapshot: result.data as unknown as Record<string, unknown>,
+      fmcsaSnapshot: JSON.parse(JSON.stringify(result.data)) as Record<string, unknown>,
       fmcsaLastCheck: new Date(),
       safetyRating: result.data.safetyRating ?? carrier.safetyRating,
       legalName: result.data.legalName ?? carrier.legalName,
@@ -128,7 +127,7 @@ export async function POST(
       legalName: result.data.legalName,
     });
   } catch (error) {
-    console.error("[CARRIERS VERIFY]", error);
+    logger.error("CARRIERS", "Verify request failed", { error: String(error) });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { recordArrival } from "@/app/actions/verification";
 import { arrivalSchema } from "@/lib/validation/schemas";
+import { logger } from "@/lib/logger";
 
 export async function POST(request: Request) {
   try {
@@ -30,7 +31,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(result);
   } catch (error) {
-    console.error("Arrival recording error:", error);
+    logger.error("ARRIVAL", "Recording failed", { error: String(error) });
     return NextResponse.json({ success: false, message: "Internal server error" }, { status: 500 });
   }
 }

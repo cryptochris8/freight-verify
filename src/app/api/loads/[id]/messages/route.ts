@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { loadMessages, loads } from "@/lib/db/schema";
 import { eq, and, asc } from "drizzle-orm";
 import { messageCreateSchema } from "@/lib/validation/schemas";
+import { logger } from "@/lib/logger";
 
 export async function GET(
   request: Request,
@@ -32,7 +33,7 @@ export async function GET(
 
     return NextResponse.json(messages);
   } catch (error) {
-    console.error("[MESSAGES GET]", error);
+    logger.error("MESSAGES", "GET request failed", { error: String(error) });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -85,7 +86,7 @@ export async function POST(
       createdAt: message.createdAt?.toISOString() ?? new Date().toISOString(),
     });
   } catch (error) {
-    console.error("[MESSAGES POST]", error);
+    logger.error("MESSAGES", "POST request failed", { error: String(error) });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

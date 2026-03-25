@@ -12,11 +12,15 @@ import {
   PLAN_TIERS,
 } from "@/lib/stripe/client";
 import { getUsage, isTrialActive } from "@/lib/billing/feature-gate";
+import { logger } from "@/lib/logger";
 
 export async function createCheckoutSessionAction(tier: PlanTier) {
-  const { userId, orgId } = await auth();
+  const { userId, orgId, orgRole } = await auth();
   if (!userId || !orgId) {
     return { success: false as const, error: "Unauthorized" };
+  }
+  if (orgRole !== "org:admin") {
+    return { success: false as const, error: "Admin access required" };
   }
 
   // Resolve internal org ID from Clerk orgId
@@ -34,15 +38,18 @@ export async function createCheckoutSessionAction(tier: PlanTier) {
     const session = await stripeCheckout(org.id, tier);
     return { success: true as const, url: session.url };
   } catch (error) {
-    console.error("[BILLING] Checkout session error:", error);
+    logger.error("BILLING", "Checkout session error", { error: error instanceof Error ? error.message : String(error) });
     return { success: false as const, error: "Failed to create checkout session" };
   }
 }
 
 export async function createPortalSessionAction() {
-  const { userId, orgId } = await auth();
+  const { userId, orgId, orgRole } = await auth();
   if (!userId || !orgId) {
     return { success: false as const, error: "Unauthorized" };
+  }
+  if (orgRole !== "org:admin") {
+    return { success: false as const, error: "Admin access required" };
   }
 
   const [org] = await db
@@ -59,7 +66,7 @@ export async function createPortalSessionAction() {
     const session = await stripePortal(org.id);
     return { success: true as const, url: session.url };
   } catch (error) {
-    console.error("[BILLING] Portal session error:", error);
+    logger.error("BILLING", "Portal session error", { error: error instanceof Error ? error.message : String(error) });
     return { success: false as const, error: "Failed to create portal session" };
   }
 }

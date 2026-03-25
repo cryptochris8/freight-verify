@@ -354,3 +354,10 @@ export const stripeWebhookEvents = pgTable('stripe_webhook_events', {
   eventType: varchar('event_type', { length: 100 }).notNull(),
   processedAt: timestamp('processed_at', { withTimezone: true }).defaultNow(),
 });
+
+// Rate limiting (DB-backed for serverless compatibility)
+export const rateLimitEntries = pgTable('rate_limit_entries', {
+  key: varchar('key', { length: 255 }).primaryKey(),
+  tokens: numeric('tokens', { precision: 10, scale: 4 }).notNull(),
+  lastRefill: timestamp('last_refill', { withTimezone: true }).notNull(),
+});

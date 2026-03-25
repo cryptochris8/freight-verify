@@ -3,6 +3,7 @@ import { alerts, carriers, carrierDocuments, loads, organizations, pickupVerific
 import { eq, and, gte, lte, count, desc } from "drizzle-orm";
 import { subHours, addDays, format } from "date-fns";
 import { Resend } from "resend";
+import { logger } from "@/lib/logger";
 
 export async function generateDailyDigest(orgId: string) {
   const now = new Date();
@@ -103,13 +104,13 @@ export async function sendDailyDigest(orgId: string, recipientEmails: string[]) 
   const digest = await generateDailyDigest(orgId);
 
   if (recipientEmails.length === 0) {
-    console.log("[DAILY DIGEST] No recipients configured for org " + orgId);
+    logger.info("DAILY DIGEST", "No recipients configured", { orgId });
     return { success: false, error: "No recipients" };
   }
 
   const resendApiKey = process.env.RESEND_API_KEY;
   if (!resendApiKey) {
-    console.log("[DAILY DIGEST] RESEND_API_KEY not configured. Subject: " + digest.subject);
+    logger.info("DAILY DIGEST", "RESEND_API_KEY not configured", { subject: digest.subject });
     return { success: false, error: "Resend not configured" };
   }
 
@@ -117,21 +118,21 @@ export async function sendDailyDigest(orgId: string, recipientEmails: string[]) 
 
   try {
     const { data, error } = await resend.emails.send({
-      from: "FreightVerify <onboarding@resend.dev>",
+      from: process.env.EMAIL_FROM || "FreightVerify <onboarding@resend.dev>",
       to: recipientEmails,
       subject: digest.subject,
       html: digest.html,
     });
 
     if (error) {
-      console.error("[DAILY DIGEST] Resend error:", error);
+      logger.error("DAILY DIGEST", "Resend error", { error: String(error) });
       return { success: false, error: error.message };
     }
 
-    console.log("[DAILY DIGEST] Sent to " + recipientEmails.join(", ") + ", id: " + data?.id);
+    logger.info("DAILY DIGEST", "Digest sent successfully", { recipients: recipientEmails.join(", "), emailId: data?.id });
     return { success: true, emailId: data?.id };
   } catch (err) {
-    console.error("[DAILY DIGEST] Send failed:", err);
+    logger.error("DAILY DIGEST", "Send failed", { error: String(err) });
     return { success: false, error: "Failed to send email" };
   }
 }

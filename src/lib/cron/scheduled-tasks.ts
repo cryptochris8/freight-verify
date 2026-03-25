@@ -5,27 +5,25 @@ import { addDays } from "date-fns";
 import { sendDailyDigest } from "@/lib/notifications/daily-digest";
 import { lookupCarrier } from "@/lib/fmcsa/client";
 import { checkFmcsaStatusChange } from "@/lib/alerts/rules";
+import { logger } from "@/lib/logger";
 
 /**
- * Re-verify all active carriers against FMCSA weekly.
- * TODO: Wire up to Vercel Cron or Inngest.
+ * Re-verify all active carriers against FMCSA.
+ * Called by /api/cron/daily (Vercel Cron).
  */
 export async function dailyFmcsaRecheck(orgId: string) {
   const activeCarriers = await db
-    .select({ id: carriers.id, dotNumber: carriers.dotNumber, legalName: carriers.legalName, fmcsaSnapshot: carriers.fmcsaSnapshot })
+    .select({ id: carriers.id, dotNumber: carriers.dotNumber, legalName: carriers.legalName, fmcsaSnapshot: carriers.fmcsaSnapshot, fmcsaLastCheck: carriers.fmcsaLastCheck })
     .from(carriers)
     .where(and(eq(carriers.orgId, orgId), eq(carriers.status, "verified")));
 
-  console.log(
-    "[CRON] dailyFmcsaRecheck: Re-verifying " +
-    activeCarriers.length + " active carriers for org " + orgId
-  );
+  logger.info("CRON", "dailyFmcsaRecheck: Re-verifying active carriers", { count: activeCarriers.length, orgId });
 
   for (const carrier of activeCarriers) {
     try {
       const result = await lookupCarrier(carrier.dotNumber);
       if (!result.success || !result.data) {
-        console.log("[CRON] FMCSA lookup failed for " + carrier.dotNumber + ": " + (result.error ?? "unknown"));
+        logger.info("CRON", "FMCSA lookup failed", { dotNumber: carrier.dotNumber, error: result.error ?? "unknown" });
         continue;
       }
 
@@ -35,7 +33,7 @@ export async function dailyFmcsaRecheck(orgId: string) {
 
       // Update the carrier's FMCSA snapshot and last check timestamp
       await db.update(carriers).set({
-        fmcsaSnapshot: result.data as unknown as Record<string, unknown>,
+        fmcsaSnapshot: JSON.parse(JSON.stringify(result.data)) as Record<string, unknown>,
         fmcsaLastCheck: new Date(),
         updatedAt: new Date(),
       }).where(eq(carriers.id, carrier.id));
@@ -57,18 +55,18 @@ export async function dailyFmcsaRecheck(orgId: string) {
             message: alertResult.message,
             metadata: alertResult.metadata,
           });
-          console.log("[CRON] FMCSA status alert created for carrier " + carrier.dotNumber);
+          logger.info("CRON", "FMCSA status alert created", { dotNumber: carrier.dotNumber });
         }
       }
     } catch (err) {
-      console.error("[CRON] Error checking carrier " + carrier.dotNumber + ":", err);
+      logger.error("CRON", "Error checking carrier", { dotNumber: carrier.dotNumber, error: String(err) });
     }
   }
 }
 
 /**
  * Check carrier documents expiring within 30 days and create alerts.
- * TODO: Wire up to Vercel Cron or Inngest.
+ * Called by /api/cron/daily (Vercel Cron).
  */
 export async function dailyDocExpirationCheck(orgId: string) {
   const now = new Date();
@@ -90,10 +88,7 @@ export async function dailyDocExpirationCheck(orgId: string) {
       )
     );
 
-  console.log(
-    "[CRON] dailyDocExpirationCheck: Found " +
-    expiringDocs.length + " expiring documents for org " + orgId
-  );
+  logger.info("CRON", "dailyDocExpirationCheck: Found expiring documents", { count: expiringDocs.length, orgId });
 
   for (const doc of expiringDocs) {
     if (!doc.expiresAt) continue;
@@ -131,12 +126,12 @@ export async function dailyDocExpirationCheck(orgId: string) {
 }
 
 export async function dailyDigestSend(orgId: string, recipientEmails: string[]) {
-  console.log("[CRON] dailyDigestSend: Generating and sending digest for org " + orgId);
+  logger.info("CRON", "dailyDigestSend: Generating and sending digest", { orgId });
   const result = await sendDailyDigest(orgId, recipientEmails);
   if (result.success) {
-    console.log("[CRON] Digest sent successfully, id: " + result.emailId);
+    logger.info("CRON", "Digest sent successfully", { emailId: result.emailId });
   } else {
-    console.log("[CRON] Digest send failed: " + result.error);
+    logger.warn("CRON", "Digest send failed", { error: result.error });
   }
   return result;
 }

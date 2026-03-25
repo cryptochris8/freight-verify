@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { carriers } from "@/lib/db/schema";
-import { eq, desc, count } from "drizzle-orm";
+import { eq, desc, count, and, or, like, ilike } from "drizzle-orm";
 import { resolveOrgId } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import {
 import { Plus } from "lucide-react";
 import Link from "next/link";
 import { format } from "date-fns";
+import { CarriersFilters } from "@/components/carriers/carriers-filters";
 
 function getStatusVariant(status: string | null) {
   switch (status) {
@@ -34,6 +35,8 @@ function getStatusVariant(status: string | null) {
 
 interface SearchParams {
   page?: string;
+  search?: string;
+  status?: string;
 }
 
 export default async function CarriersPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
@@ -43,6 +46,24 @@ export default async function CarriersPage({ searchParams }: { searchParams: Pro
   const page = parseInt(sp.page || "1", 10);
   const perPage = 20;
   const offset = (page - 1) * perPage;
+
+  // Build conditions
+  const conditions = [eq(carriers.orgId, orgId)];
+  if (sp.search) {
+    conditions.push(
+      or(
+        ilike(carriers.legalName, "%" + sp.search + "%"),
+        ilike(carriers.dotNumber, "%" + sp.search + "%"),
+        ilike(carriers.mcNumber, "%" + sp.search + "%"),
+        ilike(carriers.dbaName, "%" + sp.search + "%"),
+      )!,
+    );
+  }
+  if (sp.status) {
+    conditions.push(eq(carriers.status, sp.status as typeof carriers.status.enumValues[number]));
+  }
+
+  const whereClause = conditions.length > 1 ? and(...conditions) : conditions[0];
 
   const carrierList = await db
     .select({
@@ -55,12 +76,12 @@ export default async function CarriersPage({ searchParams }: { searchParams: Pro
       fleetSize: carriers.fleetSize,
     })
     .from(carriers)
-    .where(eq(carriers.orgId, orgId))
+    .where(whereClause)
     .orderBy(desc(carriers.createdAt))
     .limit(perPage)
     .offset(offset);
 
-  const [totalResult] = await db.select({ value: count() }).from(carriers).where(eq(carriers.orgId, orgId));
+  const [totalResult] = await db.select({ value: count() }).from(carriers).where(whereClause);
   const totalCarriers = totalResult?.value ?? 0;
   const totalPages = Math.ceil(totalCarriers / perPage);
 
@@ -81,6 +102,8 @@ export default async function CarriersPage({ searchParams }: { searchParams: Pro
         </Link>
       </div>
 
+      <CarriersFilters currentSearch={sp.search} currentStatus={sp.status} />
+
       <div className="rounded-md border">
         <Table>
           <TableHeader>
@@ -97,7 +120,9 @@ export default async function CarriersPage({ searchParams }: { searchParams: Pro
             {carrierList.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                  No carriers found. Add your first carrier to get started.
+                  {sp.search || sp.status
+                    ? "No carriers match your filters."
+                    : "No carriers found. Add your first carrier to get started."}
                 </TableCell>
               </TableRow>
             ) : (
@@ -132,6 +157,8 @@ export default async function CarriersPage({ searchParams }: { searchParams: Pro
         const buildPageUrl = (p: number) => {
           const params = new URLSearchParams();
           params.set("page", String(p));
+          if (sp.search) params.set("search", sp.search);
+          if (sp.status) params.set("status", sp.status);
           return "?" + params.toString();
         };
         return (

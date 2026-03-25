@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { loads, loadEvents } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { createChainedEvent } from "@/lib/events/create-event";
+import { sseEmitter } from "@/lib/sse/emitter";
 
 export type LoadStatus = "draft" | "tendered" | "accepted" | "in_transit" | "delivered" | "completed" | "cancelled";
 
@@ -83,6 +84,16 @@ export async function transitionStatus(
       description: `Status changed from ${currentStatus} to ${newStatus}`,
       metadata: { fromStatus: currentStatus, toStatus: newStatus, ...metadata },
     }, tx);
+
+    // Broadcast status change to SSE listeners
+    try {
+      sseEmitter.broadcast(orgId, {
+        type: "load_status_changed",
+        data: { loadId, fromStatus: currentStatus, toStatus: newStatus },
+      });
+    } catch {
+      // SSE broadcast failure is non-critical
+    }
 
     return { success: true, load: updatedLoad, event };
   });

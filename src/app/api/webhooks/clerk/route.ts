@@ -4,6 +4,7 @@ import { Webhook } from "svix";
 import { db } from "@/lib/db";
 import { organizations, onboardingProgress, subscriptions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { logger } from "@/lib/logger";
 
 interface ClerkOrganizationData {
   id: string;
@@ -21,7 +22,7 @@ interface ClerkWebhookEvent {
 export async function POST(request: Request) {
   const webhookSecret = process.env.CLERK_WEBHOOK_SECRET;
   if (!webhookSecret) {
-    console.error("CLERK_WEBHOOK_SECRET is not set");
+    logger.error("CLERK", "CLERK_WEBHOOK_SECRET is not set");
     return NextResponse.json({ error: "Webhook secret not configured" }, { status: 500 });
   }
 
@@ -46,7 +47,7 @@ export async function POST(request: Request) {
     }) as ClerkWebhookEvent;
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
-    console.error("Clerk webhook signature verification failed:", message);
+    logger.error("CLERK", "Webhook signature verification failed", { error: message });
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
   }
 
@@ -60,7 +61,7 @@ export async function POST(request: Request) {
           plan: "starter",
           verifiedLoadsLimit: 50,
         });
-        console.log(`[CLERK] Organization created: ${org.name} (${org.id})`);
+        logger.info("CLERK", "Organization created", { name: org.name, clerkOrgId: org.id });
         break;
       }
 
@@ -73,7 +74,7 @@ export async function POST(request: Request) {
             updatedAt: new Date(),
           })
           .where(eq(organizations.clerkOrgId, org.id));
-        console.log(`[CLERK] Organization updated: ${org.name} (${org.id})`);
+        logger.info("CLERK", "Organization updated", { name: org.name, clerkOrgId: org.id });
         break;
       }
 
@@ -96,15 +97,15 @@ export async function POST(request: Request) {
             .delete(organizations)
             .where(eq(organizations.clerkOrgId, org.id));
         }
-        console.log(`[CLERK] Organization deleted: ${org.id}`);
+        logger.info("CLERK", "Organization deleted", { clerkOrgId: org.id });
         break;
       }
 
       default:
-        console.log(`[CLERK] Unhandled event type: ${event.type}`);
+        logger.info("CLERK", "Unhandled event type", { eventType: event.type });
     }
   } catch (error) {
-    console.error(`[CLERK] Error processing webhook ${event.type}:`, error);
+    logger.error("CLERK", "Webhook processing failed", { eventType: event.type, error: String(error) });
     return NextResponse.json({ error: "Webhook handler failed" }, { status: 500 });
   }
 

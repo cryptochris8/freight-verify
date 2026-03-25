@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { resolveOrgId } from "@/lib/auth";
 import { tenderLoad } from "@/app/actions/loads";
 import { rateLimit } from "@/lib/rate-limit";
+import { logger } from "@/lib/logger";
 
 export async function POST(
   request: Request,
@@ -17,7 +18,7 @@ export async function POST(
     }
 
     // Rate limit: 5 per minute per org
-    const rl = rateLimit(`tender:${orgId}`, 5, 60 * 1000);
+    const rl = await rateLimit(`tender:${orgId}`, 5, 60 * 1000);
     if (!rl.allowed) {
       return NextResponse.json(
         { error: "Too many tender requests. Please wait before trying again." },
@@ -36,7 +37,7 @@ export async function POST(
       tenderToken: "tenderToken" in result ? result.tenderToken : null,
     });
   } catch (error) {
-    console.error("[TENDER]", error);
+    logger.error("TENDER", "POST request failed", { error: String(error) });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

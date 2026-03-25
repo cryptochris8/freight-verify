@@ -9,7 +9,9 @@ import { transitionStatus, type LoadStatus } from "@/lib/loads/status-engine";
 import { assignCarrier } from "@/lib/loads/assignment";
 import { createChainedEvent } from "@/lib/events/create-event";
 import { checkAccess } from "@/lib/billing/feature-gate";
+import { sendTenderNotification } from "@/lib/notifications/tender-email";
 import crypto from "crypto";
+import { logger } from "@/lib/logger";
 
 export async function createLoad(values: LoadFormValues, orgId: string, userId: string) {
   const access = await checkAccess(orgId, "loadLimit");
@@ -129,8 +131,17 @@ export async function tenderLoad(loadId: string, orgId: string, userId: string) 
   if (!result.success) return { success: false as const, error: result.error || "Transition failed" };
 
   const [carrier] = await db.select().from(carriers).where(eq(carriers.id, load.carrierId)).limit(1);
-  console.log("[TENDER] Would send tender notification to carrier " + (carrier?.legalName ?? "unknown") + " (" + (carrier?.email ?? "no email") + ")");
-  console.log("[TENDER] Tender link: /tender/" + tenderToken);
+  if (carrier?.email) {
+    await sendTenderNotification(
+      carrier.email,
+      carrier.legalName ?? "Carrier",
+      load.referenceNumber ?? loadId,
+      tenderToken
+    );
+  } else {
+    logger.info("TENDER", "No email on file for carrier, skipping notification", { carrier: carrier?.legalName ?? "unknown" });
+    logger.info("TENDER", "Tender link generated", { tenderLink: "/tender/" + tenderToken });
+  }
 
   revalidatePath("/loads");
   return { success: true as const, tenderToken };

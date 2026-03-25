@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { auditLog } from "@/lib/db/schema";
+import { logger } from "@/lib/logger";
 
 interface AuditEntry {
   orgId: string;
@@ -25,6 +26,6 @@ export async function writeAuditLog(entry: AuditEntry) {
       ipAddress: entry.ipAddress ?? null,
     });
   } catch (err) {
-    console.error("[AUDIT] Failed to write audit log:", err);
+    logger.error("AUDIT", "Failed to write audit log", { error: String(err) });
   }
 }

@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { loadEvents } from "@/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { computeEventHash } from "./hash-chain";
+import { sseEmitter } from "@/lib/sse/emitter";
 
 export interface CreateEventInput {
   loadId: string;
@@ -70,8 +71,26 @@ export async function createChainedEvent(input: CreateEventInput, externalTx?: P
     return event;
   };
 
+  let event;
   if (externalTx) {
-    return await execute(externalTx);
+    event = await execute(externalTx);
+  } else {
+    event = await db.transaction(execute);
   }
-  return await db.transaction(execute);
+
+  // Broadcast to SSE listeners (fire-and-forget, non-blocking)
+  try {
+    sseEmitter.broadcast(input.orgId, {
+      type: "event_created",
+      data: {
+        loadId: input.loadId,
+        eventType: input.eventType,
+        description: input.description,
+      },
+    });
+  } catch {
+    // SSE broadcast failure is non-critical
+  }
+
+  return event;
 }

@@ -10,7 +10,8 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
+import { useSSE } from "@/hooks/use-sse";
 
 const navItems = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
@@ -26,7 +27,7 @@ function SidebarContent() {
   const [alertCount, setAlertCount] = useState(0);
   const [eventCount, setEventCount] = useState(0);
 
-  useEffect(() => {
+  const fetchBadges = useCallback(() => {
     fetch("/api/nav-badges")
       .then((res) => res.ok ? res.json() : { alerts: 0, events: 0 })
       .then((data) => {
@@ -34,7 +35,16 @@ function SidebarContent() {
         setEventCount(data.events ?? 0);
       })
       .catch(() => {});
-  }, [pathname]);
+  }, []);
+
+  useEffect(() => {
+    fetchBadges();
+  }, [pathname, fetchBadges]);
+
+  // Auto-refresh badges when SSE events arrive
+  useSSE(useCallback(() => {
+    fetchBadges();
+  }, [fetchBadges]));
 
   return (
     <div className="flex flex-col h-full">

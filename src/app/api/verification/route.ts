@@ -3,6 +3,7 @@ import { generatePickupVerification, sendPickupOtp } from "@/lib/verification/pi
 import { db } from "@/lib/db";
 import { pickupVerifications } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { logger } from "@/lib/logger";
 
 async function getDriverPhone(verificationId: string): Promise<string | null> {
   const [verification] = await db
@@ -36,7 +37,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
-    console.error("Verification error:", error);
+    logger.error("VERIFICATION", "POST request failed", { error: String(error) });
     return NextResponse.json({ success: false, error: "Internal server error" }, { status: 500 });
   }
 }

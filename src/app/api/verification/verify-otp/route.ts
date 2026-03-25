@@ -2,12 +2,13 @@ import { NextResponse } from "next/server";
 import { verifyPickupOtp } from "@/app/actions/verification";
 import { otpVerifySchema } from "@/lib/validation/schemas";
 import { rateLimit, getClientIp } from "@/lib/rate-limit";
+import { logger } from "@/lib/logger";
 
 export async function POST(request: Request) {
   try {
     // Rate limit: 10 attempts per 15 minutes per IP
     const ip = getClientIp(request);
-    const rl = rateLimit(`verify-otp:${ip}`, 10, 15 * 60 * 1000);
+    const rl = await rateLimit(`verify-otp:${ip}`, 10, 15 * 60 * 1000);
     if (!rl.allowed) {
       return NextResponse.json(
         { success: false, message: "Too many verification attempts. Please try again later." },
@@ -33,7 +34,7 @@ export async function POST(request: Request) {
     const result = await verifyPickupOtp(loadId, otp);
     return NextResponse.json(result, { status: result.success ? 200 : 400 });
   } catch (error) {
-    console.error("Verify OTP error:", error);
+    logger.error("VERIFY_OTP", "OTP verification failed", { error: String(error) });
     return NextResponse.json({ success: false, message: "Internal server error" }, { status: 500 });
   }
 }

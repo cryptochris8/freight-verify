@@ -31,6 +31,31 @@ export const carrierCreateSchema = z.object({
 
 export type CarrierCreateInput = z.infer<typeof carrierCreateSchema>;
 
+export const carrierUpdateSchema = z.object({
+  legalName: z.string().min(1).optional(),
+  dbaName: z.string().optional().or(z.literal("")),
+  email: z
+    .string()
+    .email("Invalid email address")
+    .max(255)
+    .optional()
+    .or(z.literal("")),
+  phone: z
+    .string()
+    .max(20, "Phone number is too long")
+    .regex(/^[\d\s\-\+\(\)]*$/, "Invalid phone number format")
+    .optional()
+    .or(z.literal("")),
+  mcNumber: z
+    .string()
+    .max(10, "MC number must be 10 characters or fewer")
+    .regex(/^\d{0,10}$/, "MC number must be numeric")
+    .optional()
+    .or(z.literal("")),
+});
+
+export type CarrierUpdateInput = z.infer<typeof carrierUpdateSchema>;
+
 // ── Load schemas ─────────────────────────────────────────────────
 export const loadCreateSchema = z
   .object({
@@ -83,6 +108,53 @@ export const loadCreateSchema = z
   );
 
 export type LoadCreateInput = z.infer<typeof loadCreateSchema>;
+
+export const loadUpdateSchema = z
+  .object({
+    originName: z.string().min(1).optional(),
+    originAddress: z.string().min(1).optional(),
+    originLat: z.string().optional().or(z.literal("")),
+    originLng: z.string().optional().or(z.literal("")),
+    destinationName: z.string().min(1).optional(),
+    destinationAddress: z.string().min(1).optional(),
+    destinationLat: z.string().optional().or(z.literal("")),
+    destinationLng: z.string().optional().or(z.literal("")),
+    pickupDate: z.string().optional(),
+    deliveryDate: z.string().optional().or(z.literal("")),
+    commodity: z.string().max(200).optional().or(z.literal("")),
+    weightLbs: z
+      .string()
+      .optional()
+      .or(z.literal(""))
+      .refine(
+        (val) => !val || (Number(val) > 0 && Number.isFinite(Number(val))),
+        "Weight must be a positive number"
+      ),
+    specialInstructions: z.string().max(2000).optional().or(z.literal("")),
+    rateDollars: z
+      .string()
+      .optional()
+      .or(z.literal(""))
+      .refine(
+        (val) => !val || (Number(val) > 0 && Number.isFinite(Number(val))),
+        "Rate must be a positive number"
+      ),
+    carrierId: z.string().uuid("Invalid carrier ID").optional().or(z.literal("")),
+  })
+  .refine(
+    (data) => {
+      if (data.pickupDate && data.deliveryDate) {
+        return new Date(data.pickupDate) <= new Date(data.deliveryDate);
+      }
+      return true;
+    },
+    {
+      message: "Pickup date must be before or equal to delivery date",
+      path: ["deliveryDate"],
+    }
+  );
+
+export type LoadUpdateInput = z.infer<typeof loadUpdateSchema>;
 
 // ── Verification schemas ─────────────────────────────────────────
 export const otpVerifySchema = z.object({

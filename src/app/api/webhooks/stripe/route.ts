@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { subscriptions, organizations, stripeWebhookEvents } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import type Stripe from "stripe";
+import { logger } from "@/lib/logger";
 
 export async function POST(request: Request) {
   const body = await request.text();
@@ -17,7 +18,7 @@ export async function POST(request: Request) {
 
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!webhookSecret) {
-    console.error("STRIPE_WEBHOOK_SECRET is not set");
+    logger.error("STRIPE", "STRIPE_WEBHOOK_SECRET is not set");
     return NextResponse.json({ error: "Webhook secret not configured" }, { status: 500 });
   }
 
@@ -26,7 +27,7 @@ export async function POST(request: Request) {
     event = getStripe().webhooks.constructEvent(body, signature, webhookSecret);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
-    console.error("Stripe webhook signature verification failed:", message);
+    logger.error("STRIPE", "Webhook signature verification failed", { error: message });
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
   }
 
@@ -55,7 +56,7 @@ export async function POST(request: Request) {
               : session.subscription.id;
           const stripeSubscription = await getStripe().subscriptions.retrieve(subscriptionId);
           await upsertSubscription(orgId, stripeSubscription, tier);
-          console.log(`[STRIPE] Checkout completed for org ${orgId}, tier ${tier}`);
+          logger.info("STRIPE", "Checkout completed", { orgId, tier });
         }
         break;
       }
@@ -67,7 +68,7 @@ export async function POST(request: Request) {
 
         if (orgId) {
           await upsertSubscription(orgId, stripeSubscription, tier);
-          console.log(`[STRIPE] Subscription updated for org ${orgId}, status: ${stripeSubscription.status}`);
+          logger.info("STRIPE", "Subscription updated", { orgId, status: stripeSubscription.status });
         }
         break;
       }
@@ -87,7 +88,7 @@ export async function POST(request: Request) {
             .set({ plan: "starter", verifiedLoadsLimit: 50, updatedAt: new Date() })
             .where(eq(organizations.id, orgId));
 
-          console.log(`[STRIPE] Subscription deleted for org ${orgId}`);
+          logger.info("STRIPE", "Subscription deleted", { orgId });
         }
         break;
       }
@@ -110,17 +111,17 @@ export async function POST(request: Request) {
               .set({ status: "past_due", updatedAt: new Date() })
               .where(eq(subscriptions.orgId, org.id));
 
-            console.log(`[STRIPE] Payment failed for org ${org.id}, invoice ${invoice.id}`);
+            logger.info("STRIPE", "Payment failed", { orgId: org.id, invoiceId: invoice.id });
           }
         }
         break;
       }
 
       default:
-        console.log(`[STRIPE] Unhandled event type: ${event.type}`);
+        logger.info("STRIPE", "Unhandled event type", { eventType: event.type });
     }
   } catch (error) {
-    console.error(`[STRIPE] Error processing webhook ${event.type}:`, error);
+    logger.error("STRIPE", "Webhook processing failed", { eventType: event.type, error: String(error) });
     return NextResponse.json({ error: "Webhook handler failed" }, { status: 500 });
   }
 

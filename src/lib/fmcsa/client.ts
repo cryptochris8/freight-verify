@@ -3,8 +3,10 @@ import type { FmcsaCarrier, FmcsaLookupResult } from './types';
 const FMCSA_API_BASE = 'https://mobile.fmcsa.dot.gov/qc/services/carriers';
 const CACHE_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-// In-memory cache (in production, use Redis or database)
-const cache = new Map<string, { data: FmcsaCarrier; cachedAt: Date }>();
+interface CachedSnapshot {
+  fmcsaSnapshot: Record<string, unknown> | null;
+  fmcsaLastCheck: Date | null;
+}
 
 async function fetchWithRetry(
   url: string,
@@ -30,20 +32,31 @@ async function fetchWithRetry(
   throw new Error('Max retries exceeded');
 }
 
-export async function lookupCarrier(dotNumber: string): Promise<FmcsaLookupResult> {
-  // Check cache first
-  const cached = cache.get(dotNumber);
-  if (cached) {
-    const age = Date.now() - cached.cachedAt.getTime();
+/**
+ * Looks up a carrier by DOT number from the FMCSA API.
+ *
+ * If a `cachedData` snapshot is provided and is within the 7-day cache window,
+ * the cached data is returned without hitting the FMCSA API. This uses the
+ * existing carriers.fmcsaSnapshot/fmcsaLastCheck columns in the DB.
+ *
+ * @param dotNumber - The USDOT number to look up
+ * @param cachedData - Optional cached snapshot from the carriers table
+ */
+export async function lookupCarrier(
+  dotNumber: string,
+  cachedData?: CachedSnapshot
+): Promise<FmcsaLookupResult> {
+  // Check DB-backed cache if provided
+  if (cachedData?.fmcsaSnapshot && cachedData.fmcsaLastCheck) {
+    const age = Date.now() - cachedData.fmcsaLastCheck.getTime();
     if (age < CACHE_DURATION_MS) {
       return {
         success: true,
-        data: cached.data,
+        data: cachedData.fmcsaSnapshot as unknown as FmcsaCarrier,
         error: null,
-        cachedAt: cached.cachedAt,
+        cachedAt: cachedData.fmcsaLastCheck,
       };
     }
-    cache.delete(dotNumber);
   }
 
   const apiKey = process.env.FMCSA_API_KEY;
@@ -81,15 +94,11 @@ export async function lookupCarrier(dotNumber: string): Promise<FmcsaLookupResul
       };
     }
 
-    // Cache the result
-    const cachedAt = new Date();
-    cache.set(dotNumber, { data: carrier, cachedAt });
-
     return {
       success: true,
       data: carrier,
       error: null,
-      cachedAt,
+      cachedAt: new Date(),
     };
   } catch (error) {
     return {
@@ -98,13 +107,5 @@ export async function lookupCarrier(dotNumber: string): Promise<FmcsaLookupResul
       error: error instanceof Error ? error.message : 'Unknown error occurred',
       cachedAt: null,
     };
-  }
-}
-
-export function clearCache(dotNumber?: string): void {
-  if (dotNumber) {
-    cache.delete(dotNumber);
-  } else {
-    cache.clear();
   }
 }

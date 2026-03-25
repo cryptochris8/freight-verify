@@ -4,6 +4,8 @@ import { db } from "@/lib/db";
 import { organizations, auditLog } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod/v4";
+import { ForbiddenError } from "@/lib/auth";
+import { logger } from "@/lib/logger";
 
 const updateSettingsSchema = z.object({
   name: z.string().min(1).max(200).optional(),
@@ -35,16 +37,19 @@ export async function GET() {
       digestRecipientEmails: org.digestRecipientEmails ?? [],
     });
   } catch (error) {
-    console.error("[SETTINGS GET]", error);
+    logger.error("SETTINGS", "GET request failed", { error: String(error) });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
 export async function PATCH(request: Request) {
   try {
-    const { userId, orgId: clerkOrgId } = await auth();
+    const { userId, orgId: clerkOrgId, orgRole } = await auth();
     if (!userId || !clerkOrgId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (orgRole !== "org:admin") {
+      return NextResponse.json({ error: "Admin access required" }, { status: 403 });
     }
 
     const [org] = await db
@@ -85,7 +90,7 @@ export async function PATCH(request: Request) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("[SETTINGS PATCH]", error);
+    logger.error("SETTINGS", "PATCH request failed", { error: String(error) });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

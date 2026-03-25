@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { loads, pickupVerifications } from "@/lib/db/schema";
 import { eq, and, gte, lte } from "drizzle-orm";
 import { generatePickupVerification, sendPickupOtp } from "@/lib/verification/pickup-service";
+import { logger } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -71,7 +72,7 @@ export async function GET() {
           await sendPickupOtp(result.verificationId, verification.driverPhone, result.otp);
           sent++;
         } else {
-          console.log(`[CRON] No phone for load ${load.referenceNumber}, verification created but OTP not sent`);
+          logger.info("CRON", "No phone for load, verification created but OTP not sent", { loadRef: load.referenceNumber });
           sent++;
         }
       } catch (err) {
@@ -80,7 +81,7 @@ export async function GET() {
       }
     }
 
-    console.log(`[CRON] OTP reminders: ${sent} sent, ${skipped} skipped, ${errors.length} errors`);
+    logger.info("CRON", "OTP reminders completed", { sent, skipped, errors: errors.length });
     return NextResponse.json({
       success: true,
       loadsChecked: upcomingLoads.length,
@@ -89,7 +90,7 @@ export async function GET() {
       errors: errors.length > 0 ? errors : undefined,
     });
   } catch (error) {
-    console.error("[CRON] OTP reminders failed:", error);
+    logger.error("CRON", "OTP reminders failed", { error: String(error) });
     return NextResponse.json({ error: "Cron job failed" }, { status: 500 });
   }
 }

@@ -4,6 +4,7 @@ import { uploadPhoto } from "@/app/actions/verification";
 import { db } from "@/lib/db";
 import { loads } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { logger } from "@/lib/logger";
 
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -32,10 +33,11 @@ async function uploadWithRetry(
       return data;
     }
 
-    console.error(
-      `[PHOTO UPLOAD] Attempt ${attempt + 1}/${maxRetries + 1} failed:`,
-      error
-    );
+    logger.error("PHOTO_UPLOAD", "Upload attempt failed", {
+      attempt: attempt + 1,
+      maxAttempts: maxRetries + 1,
+      error: String(error),
+    });
 
     if (attempt < maxRetries) {
       await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
@@ -84,21 +86,21 @@ export async function POST(request: Request) {
           .getPublicUrl(data.path);
 
         fileUrl = publicUrlData.publicUrl;
-        console.log("[PHOTO UPLOAD] Uploaded to Supabase Storage:", fileUrl);
+        logger.info("PHOTO_UPLOAD", "Uploaded to Supabase Storage", { fileUrl });
       } else {
         // All retries failed — fall back to placeholder URL so the verification flow isn't blocked
-        console.warn("[PHOTO UPLOAD] All Supabase retries failed, using fallback URL");
+        logger.warn("PHOTO_UPLOAD", "All Supabase retries failed, using fallback URL");
         fileUrl = "/uploads/verification/" + fileName;
       }
     } else {
-      console.log("[PHOTO UPLOAD FALLBACK] Supabase not configured, using placeholder URL");
+      logger.info("PHOTO_UPLOAD", "Supabase not configured, using placeholder URL");
       fileUrl = "/uploads/verification/" + fileName;
     }
 
     const result = await uploadPhoto(loadId, { fileName: file.name, fileUrl, photoType });
     return NextResponse.json(result);
   } catch (error) {
-    console.error("Photo upload error:", error);
+    logger.error("PHOTO_UPLOAD", "POST request failed", { error: String(error) });
     return NextResponse.json({ success: false, error: "Internal server error" }, { status: 500 });
   }
 }

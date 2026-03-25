@@ -7,6 +7,7 @@ import { carriers, organizations } from "@/lib/db/schema";
 import { eq, count } from "drizzle-orm";
 import { checkAccess } from "@/lib/billing/feature-gate";
 import { writeAuditLog } from "@/lib/audit";
+import { logger } from "@/lib/logger";
 
 export async function GET(request: Request) {
   try {
@@ -42,7 +43,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ items, total, page, totalPages: Math.ceil(total / limit) });
   } catch (error) {
-    console.error("[CARRIERS GET]", error);
+    logger.error("CARRIERS", "GET request failed", { error: String(error) });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -64,7 +65,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Organization not found" }, { status: 404 });
     }
 
-    const rl = rateLimit(`carriers:${org.id}`, 30, 60 * 1000);
+    const rl = await rateLimit(`carriers:${org.id}`, 30, 60 * 1000);
     if (!rl.allowed) {
       return NextResponse.json(
         { error: "Rate limit exceeded. Please wait before adding more carriers." },
@@ -117,7 +118,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ carrier }, { status: 201 });
   } catch (error) {
-    console.error("[CARRIERS POST]", error);
+    logger.error("CARRIERS", "POST request failed", { error: String(error) });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

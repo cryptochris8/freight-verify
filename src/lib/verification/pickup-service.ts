@@ -3,6 +3,7 @@ import { loads, carriers, pickupVerifications } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { generateOtp, hashOtp } from "./otp";
 import { createChainedEvent } from "@/lib/events/create-event";
+import { logger } from "@/lib/logger";
 
 export interface PickupVerificationResult {
   success: boolean;
@@ -136,14 +137,14 @@ export async function sendPickupOtp(
         from: twilioFrom,
         to: phoneNumber,
       });
-      console.log(`[SMS] OTP sent to ${phoneNumber.slice(0, 3)}***${phoneNumber.slice(-4)} via Twilio`);
+      logger.info("SMS", "OTP sent via Twilio", { phone: `${phoneNumber.slice(0, 3)}***${phoneNumber.slice(-4)}` });
       await db
         .update(pickupVerifications)
         .set({ driverPhone: phoneNumber, smsStatus: "sent", smsError: null, updatedAt: new Date() })
         .where(eq(pickupVerifications.id, verificationId));
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Unknown Twilio error";
-      console.error("[SMS] Twilio send failed:", err);
+      logger.error("SMS", "Twilio send failed", { error: String(err) });
       await db
         .update(pickupVerifications)
         .set({ driverPhone: phoneNumber, smsStatus: "failed", smsError: errMsg, updatedAt: new Date() })
@@ -151,7 +152,7 @@ export async function sendPickupOtp(
       return { success: false, error: "Failed to send SMS via Twilio" };
     }
   } else {
-    console.log(`[SMS FALLBACK] Twilio env vars not configured. Would send to: ${phoneNumber}, Message: "${smsBody}"`);
+    logger.info("SMS FALLBACK", "Twilio env vars not configured", { phoneNumber, smsBody });
     await db
       .update(pickupVerifications)
       .set({ driverPhone: phoneNumber, smsStatus: "not_configured", updatedAt: new Date() })
@@ -176,12 +177,13 @@ export async function sendPickupOtp(
 }
 
 /**
- * Schedules OTP send for 2 hours before pickup_date.
- * Currently generates and sends immediately.
- * TODO: Integrate with a job scheduler (e.g., BullMQ, Inngest, or cron)
- * to schedule the SMS for 2 hours before pickup_date.
+ * Generates a pickup verification and sends the OTP immediately.
+ *
+ * Automated scheduling (2-3 hours before pickup) is handled by the
+ * /api/cron/otp-reminders cron job, which checks loads with upcoming
+ * pickup dates and triggers this function at the appropriate time.
  */
-export async function scheduleOtpSend(
+export async function generateAndSendOtp(
   loadId: string
 ): Promise<{ success: boolean; error?: string; otp?: string; verificationId?: string }> {
   const [load] = await db
@@ -193,10 +195,6 @@ export async function scheduleOtpSend(
   if (!load) {
     return { success: false, error: "Load not found" };
   }
-
-  // TODO: Calculate 2 hours before pickup_date and schedule via job queue
-  // const scheduledTime = new Date(load.pickupDate.getTime() - 2 * 60 * 60 * 1000);
-  // await jobQueue.schedule(scheduledTime, 'send-pickup-otp', { loadId });
 
   const result = await generatePickupVerification(loadId);
   if (!result.success || !result.verificationId) {
@@ -213,9 +211,7 @@ export async function scheduleOtpSend(
   if (phone) {
     await sendPickupOtp(result.verificationId, phone, result.otp!);
   } else {
-    console.log(
-      `[SMS PLACEHOLDER] No phone number available for verification ${result.verificationId}. OTP not sent.`
-    );
+    logger.info("SMS", "No phone number available, OTP not sent", { verificationId: result.verificationId });
   }
 
   return {

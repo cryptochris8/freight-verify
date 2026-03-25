@@ -4,6 +4,13 @@ import { db } from '@/lib/db';
 import { organizations } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 
+export class ForbiddenError extends Error {
+  constructor(message = 'Admin access required') {
+    super(message);
+    this.name = 'ForbiddenError';
+  }
+}
+
 /**
  * Gets the current authenticated user ID and org ID.
  * Throws if not authenticated.
@@ -61,3 +68,25 @@ export const resolveOrgId = cache(async () => {
 
   return { userId, clerkOrgId, orgId: org.id };
 });
+
+/**
+ * Checks if the current user has the admin role in their org.
+ * Returns the org context if admin, throws ForbiddenError otherwise.
+ */
+export async function requireAdmin() {
+  const { userId, orgId: clerkOrgId, orgRole } = await auth();
+  if (!userId || !clerkOrgId) throw new Error('Unauthorized');
+
+  if (orgRole !== 'org:admin') {
+    throw new ForbiddenError();
+  }
+
+  const [org] = await db
+    .select({ id: organizations.id })
+    .from(organizations)
+    .where(eq(organizations.clerkOrgId, clerkOrgId))
+    .limit(1);
+  if (!org) throw new Error('Organization not found');
+
+  return { userId, clerkOrgId, orgId: org.id };
+}

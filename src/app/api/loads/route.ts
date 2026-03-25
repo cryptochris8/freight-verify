@@ -7,6 +7,7 @@ import { loads, organizations } from "@/lib/db/schema";
 import { eq, count } from "drizzle-orm";
 import { createChainedEvent } from "@/lib/events/create-event";
 import { writeAuditLog } from "@/lib/audit";
+import { logger } from "@/lib/logger";
 
 export async function GET(request: Request) {
   try {
@@ -42,7 +43,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ items, total, page, totalPages: Math.ceil(total / limit) });
   } catch (error) {
-    console.error("[LOADS GET]", error);
+    logger.error("LOADS", "GET request failed", { error: String(error) });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -64,7 +65,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Organization not found" }, { status: 404 });
     }
 
-    const rl = rateLimit(`loads:${org.id}`, 30, 60 * 1000);
+    const rl = await rateLimit(`loads:${org.id}`, 30, 60 * 1000);
     if (!rl.allowed) {
       return NextResponse.json(
         { error: "Rate limit exceeded. Please wait before creating more loads." },
@@ -132,7 +133,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ load }, { status: 201 });
   } catch (error) {
-    console.error("[LOADS POST]", error);
+    logger.error("LOADS", "POST request failed", { error: String(error) });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

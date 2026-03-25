@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { subscriptions, organizations } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { PLAN_TIERS, type PlanTier } from "./plans";
+import { logger } from "@/lib/logger";
 export { PLAN_TIERS, type PlanTier };
 
 let _stripe: Stripe | null = null;
@@ -17,12 +18,21 @@ export function getStripe(): Stripe {
 }
 
 function getPriceIdForTier(tier: PlanTier): string {
-  const envMap: Record<PlanTier, string> = {
-    starter: process.env.STRIPE_STARTER_PRICE_ID ?? "price_starter",
-    professional: process.env.STRIPE_PROFESSIONAL_PRICE_ID ?? "price_professional",
-    business: process.env.STRIPE_BUSINESS_PRICE_ID ?? "price_business",
+  const envKeys: Record<PlanTier, { env: string; fallback: string }> = {
+    starter: { env: "STRIPE_STARTER_PRICE_ID", fallback: "price_starter" },
+    professional: { env: "STRIPE_PROFESSIONAL_PRICE_ID", fallback: "price_professional" },
+    business: { env: "STRIPE_BUSINESS_PRICE_ID", fallback: "price_business" },
   };
-  return envMap[tier];
+
+  const { env, fallback } = envKeys[tier];
+  const value = process.env[env];
+
+  if (!value) {
+    logger.warn("STRIPE", "Price env var not set, using placeholder - Stripe will reject this in production", { env, fallback });
+    return fallback;
+  }
+
+  return value;
 }
 
 /**
