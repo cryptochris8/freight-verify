@@ -8,6 +8,21 @@ export default defineConfig({
     environment: "node",
     globals: true,
     include: ["src/**/__tests__/**/*.test.{ts,tsx}", "src/**/*.test.{ts,tsx}"],
+    coverage: {
+      provider: "v8",
+      include: ["src/lib/**/*.ts"],
+      exclude: [
+        "src/lib/db/**",
+        "src/lib/**/__tests__/**",
+      ],
+      reporter: ["text", "text-summary", "html"],
+      thresholds: {
+        lines: 60,
+        functions: 60,
+        branches: 50,
+        statements: 60,
+      },
+    },
   },
   resolve: {
     alias: {

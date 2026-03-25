@@ -31,15 +31,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
   }
 
-  // Idempotency check: skip if this event was already processed
-  const [existing] = await db
-    .select({ id: stripeWebhookEvents.id })
-    .from(stripeWebhookEvents)
-    .where(eq(stripeWebhookEvents.stripeEventId, event.id))
-    .limit(1);
-
-  if (existing) {
-    return NextResponse.json({ received: true });
+  // Idempotency: insert the event record BEFORE processing.
+  // If a concurrent request already inserted it, the unique constraint
+  // on stripeEventId will throw and we skip processing (dedup).
+  try {
+    await db.insert(stripeWebhookEvents).values({
+      stripeEventId: event.id,
+      eventType: event.type,
+    });
+  } catch (insertError) {
+    // Unique constraint violation means this event was already claimed
+    const msg = insertError instanceof Error ? insertError.message : "";
+    if (msg.includes("unique") || msg.includes("duplicate") || msg.includes("23505")) {
+      return NextResponse.json({ received: true });
+    }
+    throw insertError;
   }
 
   try {
@@ -124,12 +130,6 @@ export async function POST(request: Request) {
     logger.error("STRIPE", "Webhook processing failed", { eventType: event.type, error: String(error) });
     return NextResponse.json({ error: "Webhook handler failed" }, { status: 500 });
   }
-
-  // Record event as processed
-  await db.insert(stripeWebhookEvents).values({
-    stripeEventId: event.id,
-    eventType: event.type,
-  });
 
   return NextResponse.json({ received: true });
 }

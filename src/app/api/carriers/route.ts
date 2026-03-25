@@ -1,43 +1,28 @@
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
 import { carrierCreateSchema } from "@/lib/validation/schemas";
 import { rateLimit } from "@/lib/rate-limit";
 import { db } from "@/lib/db";
-import { carriers, organizations } from "@/lib/db/schema";
+import { carriers } from "@/lib/db/schema";
 import { eq, count } from "drizzle-orm";
 import { checkAccess } from "@/lib/billing/feature-gate";
 import { writeAuditLog } from "@/lib/audit";
 import { logger } from "@/lib/logger";
+import { withAuth } from "@/lib/auth";
 
-export async function GET(request: Request) {
+export const GET = withAuth(async (request, { orgId }) => {
   try {
-    const { orgId: clerkOrgId } = await auth();
-    if (!clerkOrgId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const [org] = await db
-      .select()
-      .from(organizations)
-      .where(eq(organizations.clerkOrgId, clerkOrgId))
-      .limit(1);
-
-    if (!org) {
-      return NextResponse.json({ error: "Organization not found" }, { status: 404 });
-    }
-
     const url = new URL(request.url);
     const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
     const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") || "20", 10)));
     const offset = (page - 1) * limit;
 
-    const [totalResult] = await db.select({ value: count() }).from(carriers).where(eq(carriers.orgId, org.id));
+    const [totalResult] = await db.select({ value: count() }).from(carriers).where(eq(carriers.orgId, orgId));
     const total = totalResult?.value ?? 0;
 
     const items = await db
       .select()
       .from(carriers)
-      .where(eq(carriers.orgId, org.id))
+      .where(eq(carriers.orgId, orgId))
       .limit(limit)
       .offset(offset);
 
@@ -46,26 +31,11 @@ export async function GET(request: Request) {
     logger.error("CARRIERS", "GET request failed", { error: String(error) });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
-}
+});
 
-export async function POST(request: Request) {
+export const POST = withAuth(async (request, { userId, orgId }) => {
   try {
-    const { userId, orgId: clerkOrgId } = await auth();
-    if (!userId || !clerkOrgId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const [org] = await db
-      .select()
-      .from(organizations)
-      .where(eq(organizations.clerkOrgId, clerkOrgId))
-      .limit(1);
-
-    if (!org) {
-      return NextResponse.json({ error: "Organization not found" }, { status: 404 });
-    }
-
-    const rl = await rateLimit(`carriers:${org.id}`, 30, 60 * 1000);
+    const rl = await rateLimit(`carriers:${orgId}`, 30, 60 * 1000);
     if (!rl.allowed) {
       return NextResponse.json(
         { error: "Rate limit exceeded. Please wait before adding more carriers." },
@@ -73,7 +43,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const access = await checkAccess(org.id, "carrierLimit");
+    const access = await checkAccess(orgId, "carrierLimit");
     if (!access.allowed) {
       return NextResponse.json(
         { error: access.reason ?? "Carrier limit reached" },
@@ -95,7 +65,7 @@ export async function POST(request: Request) {
     const [carrier] = await db
       .insert(carriers)
       .values({
-        orgId: org.id,
+        orgId,
         dotNumber: data.dotNumber,
         mcNumber: data.mcNumber || null,
         legalName: data.legalName || null,
@@ -107,7 +77,7 @@ export async function POST(request: Request) {
       .returning();
 
     await writeAuditLog({
-      orgId: org.id,
+      orgId,
       entityType: "carrier",
       entityId: carrier.id,
       action: "carrier_created",
@@ -121,4 +91,4 @@ export async function POST(request: Request) {
     logger.error("CARRIERS", "POST request failed", { error: String(error) });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
-}
+});

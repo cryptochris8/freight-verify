@@ -16,22 +16,8 @@ import { Plus } from "lucide-react";
 import Link from "next/link";
 import { format } from "date-fns";
 import { CarriersFilters } from "@/components/carriers/carriers-filters";
-
-function getStatusVariant(status: string | null) {
-  switch (status) {
-    case "verified":
-      return "default" as const;
-    case "pending":
-      return "secondary" as const;
-    case "flagged":
-    case "suspended":
-      return "destructive" as const;
-    case "expired":
-      return "outline" as const;
-    default:
-      return "secondary" as const;
-  }
-}
+import { getCarrierStatusVariant } from "@/lib/utils/status-variant";
+import { buildPageUrl } from "@/lib/utils/pagination";
 
 interface SearchParams {
   page?: string;
@@ -136,7 +122,7 @@ export default async function CarriersPage({ searchParams }: { searchParams: Pro
                   <TableCell>{carrier.dotNumber}</TableCell>
                   <TableCell>{carrier.mcNumber || "\u2014"}</TableCell>
                   <TableCell>
-                    <Badge variant={getStatusVariant(carrier.status)}>
+                    <Badge variant={getCarrierStatusVariant(carrier.status)}>
                       {carrier.status || "pending"}
                     </Badge>
                   </TableCell>
@@ -153,24 +139,15 @@ export default async function CarriersPage({ searchParams }: { searchParams: Pro
         </Table>
       </div>
 
-      {totalPages > 1 && (() => {
-        const buildPageUrl = (p: number) => {
-          const params = new URLSearchParams();
-          params.set("page", String(p));
-          if (sp.search) params.set("search", sp.search);
-          if (sp.status) params.set("status", sp.status);
-          return "?" + params.toString();
-        };
-        return (
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">Showing {offset + 1} to {Math.min(offset + perPage, totalCarriers)} of {totalCarriers} carriers</p>
-            <div className="flex gap-2">
-              {page > 1 && <Link href={buildPageUrl(page - 1)}><Button variant="outline" size="sm">Previous</Button></Link>}
-              {page < totalPages && <Link href={buildPageUrl(page + 1)}><Button variant="outline" size="sm">Next</Button></Link>}
-            </div>
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">Showing {offset + 1} to {Math.min(offset + perPage, totalCarriers)} of {totalCarriers} carriers</p>
+          <div className="flex gap-2">
+            {page > 1 && <Link href={buildPageUrl(page - 1, { search: sp.search, status: sp.status })}><Button variant="outline" size="sm">Previous</Button></Link>}
+            {page < totalPages && <Link href={buildPageUrl(page + 1, { search: sp.search, status: sp.status })}><Button variant="outline" size="sm">Next</Button></Link>}
           </div>
-        );
-      })()}
+        </div>
+      )}
     </div>
   );
 }

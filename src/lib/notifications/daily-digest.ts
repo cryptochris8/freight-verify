@@ -10,64 +10,62 @@ export async function generateDailyDigest(orgId: string) {
   const twentyFourHoursAgo = subHours(now, 24);
   const thirtyDaysFromNow = addDays(now, 30);
 
+  // Fetch org name first (needed for the email), then run all 6 data queries in parallel
   const [org] = await db.select().from(organizations).where(eq(organizations.id, orgId)).limit(1);
   const orgName = org?.name ?? "Unknown Org";
 
-  const newAlerts = await db
-    .select()
-    .from(alerts)
-    .where(and(eq(alerts.orgId, orgId), gte(alerts.createdAt, twentyFourHoursAgo)))
-    .orderBy(desc(alerts.createdAt));
+  const [
+    newAlerts,
+    [unackCount],
+    expiringDocs,
+    staleTenders,
+    [newLoadsCount],
+    [completedVerifications],
+  ] = await Promise.all([
+    db.select()
+      .from(alerts)
+      .where(and(eq(alerts.orgId, orgId), gte(alerts.createdAt, twentyFourHoursAgo)))
+      .orderBy(desc(alerts.createdAt)),
 
-  const [unackCount] = await db
-    .select({ value: count() })
-    .from(alerts)
-    .where(and(eq(alerts.orgId, orgId), eq(alerts.status, "open")));
+    db.select({ value: count() })
+      .from(alerts)
+      .where(and(eq(alerts.orgId, orgId), eq(alerts.status, "open"))),
 
-  const expiringDocs = await db
-    .select({
-      id: carrierDocuments.id,
-      docType: carrierDocuments.docType,
-      fileName: carrierDocuments.fileName,
-      expiresAt: carrierDocuments.expiresAt,
-      carrierName: carriers.legalName,
-    })
-    .from(carrierDocuments)
-    .leftJoin(carriers, eq(carrierDocuments.carrierId, carriers.id))
-    .where(
-      and(
+    db.select({
+        id: carrierDocuments.id,
+        docType: carrierDocuments.docType,
+        fileName: carrierDocuments.fileName,
+        expiresAt: carrierDocuments.expiresAt,
+        carrierName: carriers.legalName,
+      })
+      .from(carrierDocuments)
+      .leftJoin(carriers, eq(carrierDocuments.carrierId, carriers.id))
+      .where(and(
         eq(carrierDocuments.orgId, orgId),
         gte(carrierDocuments.expiresAt, now),
         lte(carrierDocuments.expiresAt, thirtyDaysFromNow)
-      )
-    );
+      )),
 
-  const staleTenders = await db
-    .select()
-    .from(loads)
-    .where(
-      and(
+    db.select()
+      .from(loads)
+      .where(and(
         eq(loads.orgId, orgId),
         eq(loads.status, "tendered"),
         lte(loads.updatedAt, twentyFourHoursAgo)
-      )
-    );
+      )),
 
-  const [newLoadsCount] = await db
-    .select({ value: count() })
-    .from(loads)
-    .where(and(eq(loads.orgId, orgId), gte(loads.createdAt, twentyFourHoursAgo)));
+    db.select({ value: count() })
+      .from(loads)
+      .where(and(eq(loads.orgId, orgId), gte(loads.createdAt, twentyFourHoursAgo))),
 
-  const [completedVerifications] = await db
-    .select({ value: count() })
-    .from(pickupVerifications)
-    .where(
-      and(
+    db.select({ value: count() })
+      .from(pickupVerifications)
+      .where(and(
         eq(pickupVerifications.orgId, orgId),
         eq(pickupVerifications.verificationStatus, "verified"),
         gte(pickupVerifications.verifiedAt, twentyFourHoursAgo)
-      )
-    );
+      )),
+  ]);
 
   const html = generateDigestHtml({
     orgName,

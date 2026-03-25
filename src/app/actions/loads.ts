@@ -4,68 +4,21 @@ import { db } from "@/lib/db";
 import { loads, loadEvents, carriers } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { loadFormSchema, type LoadFormValues } from "@/lib/loads/validation";
+import { type LoadFormValues } from "@/lib/loads/validation";
 import { transitionStatus, type LoadStatus } from "@/lib/loads/status-engine";
-import { assignCarrier } from "@/lib/loads/assignment";
 import { createChainedEvent } from "@/lib/events/create-event";
-import { checkAccess } from "@/lib/billing/feature-gate";
 import { sendTenderNotification } from "@/lib/notifications/tender-email";
+import { createLoadCore } from "@/lib/loads/create-load";
 import crypto from "crypto";
 import { logger } from "@/lib/logger";
 
 export async function createLoad(values: LoadFormValues, orgId: string, userId: string) {
-  const access = await checkAccess(orgId, "loadLimit");
-  if (!access.allowed) {
-    return { success: false as const, error: access.reason ?? "Load limit reached" };
+  const result = await createLoadCore(values, orgId, userId);
+  if (!result.success) {
+    return { success: false as const, error: result.error };
   }
-
-  const parsed = loadFormSchema.safeParse(values);
-  if (!parsed.success) {
-    return { success: false as const, error: parsed.error.flatten().fieldErrors };
-  }
-
-  const data = parsed.data;
-  const rateCents = data.rateDollars ? Math.round(parseFloat(data.rateDollars) * 100) : null;
-  const weightLbs = data.weightLbs ? parseInt(data.weightLbs, 10) : null;
-
-  const [load] = await db.insert(loads).values({
-    orgId,
-    referenceNumber: data.referenceNumber,
-    status: "draft",
-    originName: data.originName,
-    originAddress: data.originAddress,
-    originLat: data.originLat || null,
-    originLng: data.originLng || null,
-    destinationName: data.destinationName,
-    destinationAddress: data.destinationAddress,
-    destinationLat: data.destinationLat || null,
-    destinationLng: data.destinationLng || null,
-    pickupDate: new Date(data.pickupDate),
-    deliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : null,
-    commodity: data.commodity || null,
-    weightLbs,
-    specialInstructions: data.specialInstructions || null,
-    rateCents,
-    carrierId: data.carrierId || null,
-    createdBy: userId,
-  }).returning();
-
-  await createChainedEvent({
-    loadId: load.id,
-    orgId,
-    eventType: "load_created",
-    actorId: userId,
-    actorType: "user",
-    description: "Load " + data.referenceNumber + " created",
-    metadata: { referenceNumber: data.referenceNumber },
-  });
-
-  if (data.carrierId) {
-    await assignCarrier(load.id, data.carrierId, userId, orgId);
-  }
-
   revalidatePath("/loads");
-  return { success: true as const, loadId: load.id };
+  return { success: true as const, loadId: result.load.id };
 }
 
 export async function updateLoad(loadId: string, values: LoadFormValues, orgId: string, userId: string) {
@@ -115,32 +68,48 @@ export async function deleteLoad(loadId: string, orgId: string) {
 }
 
 export async function tenderLoad(loadId: string, orgId: string, userId: string) {
-  const [load] = await db.select().from(loads).where(and(eq(loads.id, loadId), eq(loads.orgId, orgId))).limit(1);
-  if (!load) return { success: false as const, error: "Load not found" };
-  if (load.status !== "draft") return { success: false as const, error: "Load must be in draft status to tender" };
-  if (!load.carrierId) return { success: false as const, error: "No carrier assigned" };
-
   const tenderToken = crypto.randomUUID();
+  const tenderExpiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
-  await db.update(loads).set({
-    tenderToken,
-    tenderExpiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
-  }).where(eq(loads.id, loadId));
+  // Wrap token write + status transition in a single transaction to prevent
+  // race conditions where a token is set but the status transition fails.
+  const txResult = await db.transaction(async (tx) => {
+    const [load] = await tx.select().from(loads)
+      .where(and(eq(loads.id, loadId), eq(loads.orgId, orgId))).limit(1);
+    if (!load) return { success: false as const, error: "Load not found" };
+    if (load.status !== "draft") return { success: false as const, error: "Load must be in draft status to tender" };
+    if (!load.carrierId) return { success: false as const, error: "No carrier assigned" };
 
+    await tx.update(loads).set({
+      tenderToken,
+      tenderExpiresAt,
+      updatedAt: new Date(),
+    }).where(eq(loads.id, loadId));
+
+    return { success: true as const, carrierId: load.carrierId, referenceNumber: load.referenceNumber };
+  });
+
+  if (!txResult.success) return txResult;
+
+  // transitionStatus uses its own transaction with FOR UPDATE locking
   const result = await transitionStatus(loadId, "tendered", userId, orgId, { tenderToken });
-  if (!result.success) return { success: false as const, error: result.error || "Transition failed" };
+  if (!result.success) {
+    // Rollback the token if transition fails
+    await db.update(loads).set({ tenderToken: null, tenderExpiresAt: null, updatedAt: new Date() })
+      .where(eq(loads.id, loadId));
+    return { success: false as const, error: result.error || "Transition failed" };
+  }
 
-  const [carrier] = await db.select().from(carriers).where(eq(carriers.id, load.carrierId)).limit(1);
+  const [carrier] = await db.select().from(carriers).where(eq(carriers.id, txResult.carrierId)).limit(1);
   if (carrier?.email) {
     await sendTenderNotification(
       carrier.email,
       carrier.legalName ?? "Carrier",
-      load.referenceNumber ?? loadId,
+      txResult.referenceNumber ?? loadId,
       tenderToken
     );
   } else {
     logger.info("TENDER", "No email on file for carrier, skipping notification", { carrier: carrier?.legalName ?? "unknown" });
-    logger.info("TENDER", "Tender link generated", { tenderLink: "/tender/" + tenderToken });
   }
 
   revalidatePath("/loads");

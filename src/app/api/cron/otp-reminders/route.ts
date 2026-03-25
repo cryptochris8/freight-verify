@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { loads, pickupVerifications } from "@/lib/db/schema";
-import { eq, and, gte, lte } from "drizzle-orm";
+import { eq, and, gte, lte, inArray } from "drizzle-orm";
 import { generatePickupVerification, sendPickupOtp } from "@/lib/verification/pickup-service";
 import { logger } from "@/lib/logger";
 
@@ -37,19 +37,25 @@ export async function GET() {
         )
       );
 
+    if (upcomingLoads.length === 0) {
+      return NextResponse.json({ success: true, loadsChecked: 0, sent: 0, skipped: 0 });
+    }
+
+    // Batch-fetch all existing verifications for upcoming loads in ONE query
+    // instead of one query per load (N+1 → 1)
+    const loadIds = upcomingLoads.map((l) => l.id);
+    const existingVerifications = await db
+      .select({ loadId: pickupVerifications.loadId })
+      .from(pickupVerifications)
+      .where(inArray(pickupVerifications.loadId, loadIds));
+    const loadsWithVerification = new Set(existingVerifications.map((v) => v.loadId));
+
     let sent = 0;
     let skipped = 0;
     const errors: string[] = [];
 
     for (const load of upcomingLoads) {
-      // Check if a pickup verification already exists for this load
-      const [existingVerification] = await db
-        .select({ id: pickupVerifications.id })
-        .from(pickupVerifications)
-        .where(eq(pickupVerifications.loadId, load.id))
-        .limit(1);
-
-      if (existingVerification) {
+      if (loadsWithVerification.has(load.id)) {
         skipped++;
         continue;
       }

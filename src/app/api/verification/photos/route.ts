@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { uploadPhoto } from "@/app/actions/verification";
-import { db } from "@/lib/db";
-import { loads } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
 import { logger } from "@/lib/logger";
+import { validateDriverTokenForLoad } from "@/lib/auth/driver-token";
+
+const ALLOWED_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+]);
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -46,6 +53,13 @@ async function uploadWithRetry(
   return null;
 }
 
+/**
+ * Sanitize filename: keep only alphanumeric, dots, hyphens, underscores.
+ */
+function sanitizeFilename(name: string): string {
+  return name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100);
+}
+
 export async function POST(request: Request) {
   try {
     const formData = await request.formData();
@@ -61,13 +75,31 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: "No file provided" }, { status: 400 });
     }
 
-    // Validate load exists and belongs to a known org
-    const [load] = await db.select({ id: loads.id, orgId: loads.orgId }).from(loads).where(eq(loads.id, loadId)).limit(1);
+    // Require a valid driver token that matches the load
+    const load = await validateDriverTokenForLoad(request, loadId);
     if (!load) {
-      return NextResponse.json({ success: false, error: "Load not found" }, { status: 404 });
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
 
-    const fileName = `${loadId}/${photoType}-${Date.now()}-${file.name}`;
+    // Validate file type
+    const mimeType = file.type || "";
+    if (!ALLOWED_MIME_TYPES.has(mimeType)) {
+      return NextResponse.json(
+        { success: false, error: `Invalid file type '${mimeType}'. Allowed: JPEG, PNG, WebP, HEIC.` },
+        { status: 400 }
+      );
+    }
+
+    // Validate file size
+    if (file.size > MAX_FILE_SIZE) {
+      return NextResponse.json(
+        { success: false, error: `File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Max: 10 MB.` },
+        { status: 400 }
+      );
+    }
+
+    const safeName = sanitizeFilename(file.name);
+    const fileName = `${loadId}/${photoType}-${Date.now()}-${safeName}`;
     let fileUrl: string;
 
     const supabase = getSupabaseAdmin();
@@ -77,7 +109,7 @@ export async function POST(request: Request) {
         supabase,
         fileName,
         buffer,
-        file.type || "image/jpeg"
+        mimeType
       );
 
       if (data) {
@@ -97,7 +129,7 @@ export async function POST(request: Request) {
       fileUrl = "/uploads/verification/" + fileName;
     }
 
-    const result = await uploadPhoto(loadId, { fileName: file.name, fileUrl, photoType });
+    const result = await uploadPhoto(loadId, { fileName: safeName, fileUrl, photoType });
     return NextResponse.json(result);
   } catch (error) {
     logger.error("PHOTO_UPLOAD", "POST request failed", { error: String(error) });

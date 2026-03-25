@@ -9,15 +9,7 @@ import Link from "next/link";
 import { format, startOfWeek, endOfWeek, subHours, subDays, startOfDay, startOfMonth } from "date-fns";
 import { getAlertStats } from "@/app/actions/alerts";
 import { AlertSummary } from "@/components/alerts/alert-summary";
-function getStatusVariant(status: string) {
-  switch (status) {
-    case "completed": case "delivered": return "default" as const;
-    case "in_transit": case "accepted": return "secondary" as const;
-    case "draft": case "tendered": return "outline" as const;
-    case "cancelled": return "destructive" as const;
-    default: return "secondary" as const;
-  }
-}
+import { getLoadStatusVariant } from "@/lib/utils/status-variant";
 
 export default async function DashboardPage() {
   const { userId, orgId } = await resolveOrgId();
@@ -60,24 +52,36 @@ export default async function DashboardPage() {
     .orderBy(desc(alerts.createdAt))
     .limit(3);
 
+  // Single query with GROUP BY replaces 21 serial queries (3 per day × 7 days)
+  const sevenDaysAgo = startOfDay(subDays(now, 6));
+  const trendRows = await db
+    .select({
+      day: sql<string>`date_trunc('day', ${alerts.createdAt})::date::text`,
+      severity: alerts.severity,
+      value: count(),
+    })
+    .from(alerts)
+    .where(and(eq(alerts.orgId, orgId), gte(alerts.createdAt, sevenDaysAgo)))
+    .groupBy(sql`date_trunc('day', ${alerts.createdAt})`, alerts.severity);
+
+  // Build a map from the grouped results
+  const trendMap = new Map<string, { critical: number; high: number; medium: number }>();
+  for (const row of trendRows) {
+    if (!row.day) continue;
+    const key = row.day;
+    if (!trendMap.has(key)) trendMap.set(key, { critical: 0, high: 0, medium: 0 });
+    const entry = trendMap.get(key)!;
+    if (row.severity === "critical") entry.critical = row.value;
+    else if (row.severity === "high") entry.high = row.value;
+    else if (row.severity === "medium") entry.medium = row.value;
+  }
+
   const trendData: { date: string; critical: number; high: number; medium: number }[] = [];
   for (let i = 6; i >= 0; i--) {
     const dayStart = startOfDay(subDays(now, i));
-    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
-
-    const [critCount] = await db.select({ value: count() }).from(alerts)
-      .where(and(eq(alerts.orgId, orgId), eq(alerts.severity, "critical"), gte(alerts.createdAt, dayStart), lt(alerts.createdAt, dayEnd)));
-    const [highCount] = await db.select({ value: count() }).from(alerts)
-      .where(and(eq(alerts.orgId, orgId), eq(alerts.severity, "high"), gte(alerts.createdAt, dayStart), lt(alerts.createdAt, dayEnd)));
-    const [medCount] = await db.select({ value: count() }).from(alerts)
-      .where(and(eq(alerts.orgId, orgId), eq(alerts.severity, "medium"), gte(alerts.createdAt, dayStart), lt(alerts.createdAt, dayEnd)));
-
-    trendData.push({
-      date: format(dayStart, "MMM d"),
-      critical: critCount?.value ?? 0,
-      high: highCount?.value ?? 0,
-      medium: medCount?.value ?? 0,
-    });
+    const key = format(dayStart, "yyyy-MM-dd");
+    const entry = trendMap.get(key) ?? { critical: 0, high: 0, medium: 0 };
+    trendData.push({ date: format(dayStart, "MMM d"), ...entry });
   }
 
   const stats = [
@@ -156,7 +160,7 @@ export default async function DashboardPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-medium truncate">{load.referenceNumber}</p>
-                        <Badge variant={getStatusVariant(load.status || "draft")} className="text-xs">{(load.status || "draft").replace("_", " ")}</Badge>
+                        <Badge variant={getLoadStatusVariant(load.status || "draft")} className="text-xs">{(load.status || "draft").replace("_", " ")}</Badge>
                       </div>
                       <p className="text-xs text-muted-foreground truncate">{load.originName} <ArrowRight className="h-3 w-3 inline" /> {load.destinationName}</p>
                     </div>

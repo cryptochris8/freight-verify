@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { loadEvents, loads, carriers } from "@/lib/db/schema";
-import { eq, and, desc, gte, lte, like, or, count } from "drizzle-orm";
+import { eq, and, desc, gte, lte, like, or, count, sql } from "drizzle-orm";
 import { resolveOrgId } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -31,7 +31,7 @@ export default async function EventsPage({
   const perPage = 25;
   const offset = (page - 1) * perPage;
 
-  // Build conditions
+  // Build ALL conditions in SQL — no post-fetch JS filtering
   const conditions: ReturnType<typeof eq>[] = [eq(loadEvents.orgId, orgId)];
 
   if (params.startDate) {
@@ -40,12 +40,37 @@ export default async function EventsPage({
   if (params.endDate) {
     conditions.push(lte(loadEvents.createdAt, new Date(params.endDate + "T23:59:59")));
   }
+  if (params.search) {
+    const searchTerm = "%" + params.search + "%";
+    conditions.push(
+      or(
+        like(loads.referenceNumber, searchTerm),
+        like(carriers.legalName, searchTerm)
+      )!
+    );
+  }
+  if (params.types) {
+    const types = params.types.split(",").map((t) => t.trim()).filter(Boolean);
+    if (types.length > 0) {
+      const likeConditions = types.map((t) =>
+        sql`${loadEvents.eventType} LIKE ${t + "%"}`
+      );
+      conditions.push(sql`(${sql.join(likeConditions, sql` OR `)})`);
+    }
+  }
+  if (params.carrier) {
+    conditions.push(eq(loads.carrierId, params.carrier));
+  }
 
-  // Get total count
+  const whereClause = and(...conditions);
+
+  // Get total count (with all filters applied)
   const [totalResult] = await db
     .select({ value: count() })
     .from(loadEvents)
-    .where(and(...conditions));
+    .leftJoin(loads, eq(loadEvents.loadId, loads.id))
+    .leftJoin(carriers, eq(loads.carrierId, carriers.id))
+    .where(whereClause);
   const total = totalResult?.value ?? 0;
 
   // Get events with joins
@@ -67,33 +92,12 @@ export default async function EventsPage({
     .from(loadEvents)
     .leftJoin(loads, eq(loadEvents.loadId, loads.id))
     .leftJoin(carriers, eq(loads.carrierId, carriers.id))
-    .where(and(...conditions))
+    .where(whereClause)
     .orderBy(desc(loadEvents.createdAt))
     .limit(perPage)
     .offset(offset);
 
-  // Apply client-side filters for search and types
-  let filtered = events;
-  if (params.search) {
-    const s = params.search.toLowerCase();
-    filtered = filtered.filter(
-      (e) =>
-        (e.referenceNumber && e.referenceNumber.toLowerCase().includes(s)) ||
-        (e.carrierName && e.carrierName.toLowerCase().includes(s))
-    );
-  }
-  if (params.types) {
-    const types = params.types.split(",");
-    filtered = filtered.filter((e) =>
-      types.some((t) => e.eventType.startsWith(t))
-    );
-  }
-  if (params.carrier) {
-    filtered = filtered.filter((e) => {
-      // carrier filter by ID - need to check via load join
-      return true; // simplified, we filter in query if needed
-    });
-  }
+  const filtered = events;
 
   // Get carriers for filter dropdown
   const orgCarriers = await db

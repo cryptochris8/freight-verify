@@ -10,16 +10,8 @@ import { Plus, Package, Truck, Clock, CheckCircle } from "lucide-react";
 import Link from "next/link";
 import { format, startOfWeek, endOfWeek } from "date-fns";
 import { LoadsFilters } from "@/components/loads/loads-filters";
-
-function getStatusVariant(status: string) {
-  switch (status) {
-    case "completed": case "delivered": return "default" as const;
-    case "in_transit": case "accepted": return "secondary" as const;
-    case "draft": case "tendered": return "outline" as const;
-    case "cancelled": return "destructive" as const;
-    default: return "secondary" as const;
-  }
-}
+import { getLoadStatusVariant } from "@/lib/utils/status-variant";
+import { buildPageUrl } from "@/lib/utils/pagination";
 
 interface SearchParams {
   search?: string;
@@ -160,7 +152,7 @@ export default async function LoadsPage({ searchParams }: { searchParams: Promis
                     <Link href={"/loads/" + load.id} className="hover:underline">{load.referenceNumber || "N/A"}</Link>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={getStatusVariant(load.status || "draft")}>{(load.status || "draft").replace("_", " ")}</Badge>
+                    <Badge variant={getLoadStatusVariant(load.status || "draft")}>{(load.status || "draft").replace("_", " ")}</Badge>
                   </TableCell>
                   <TableCell>{load.carrierName || "Unassigned"}</TableCell>
                   <TableCell className="text-sm">{(load.originName || "?") + " -> " + (load.destinationName || "?")}</TableCell>
@@ -174,25 +166,15 @@ export default async function LoadsPage({ searchParams }: { searchParams: Promis
       </div>
 
       {/* Pagination */}
-      {totalPages > 1 && (() => {
-        const buildPageUrl = (p: number) => {
-          const params = new URLSearchParams();
-          params.set("page", String(p));
-          if (sp.search) params.set("search", sp.search);
-          if (sp.status) params.set("status", sp.status);
-          if (sp.carrier) params.set("carrier", sp.carrier);
-          return "?" + params.toString();
-        };
-        return (
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">Showing {offset + 1} to {Math.min(offset + perPage, totalLoads)} of {totalLoads} loads</p>
-            <div className="flex gap-2">
-              {page > 1 && <Link href={buildPageUrl(page - 1)}><Button variant="outline" size="sm">Previous</Button></Link>}
-              {page < totalPages && <Link href={buildPageUrl(page + 1)}><Button variant="outline" size="sm">Next</Button></Link>}
-            </div>
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">Showing {offset + 1} to {Math.min(offset + perPage, totalLoads)} of {totalLoads} loads</p>
+          <div className="flex gap-2">
+            {page > 1 && <Link href={buildPageUrl(page - 1, { search: sp.search, status: sp.status, carrier: sp.carrier })}><Button variant="outline" size="sm">Previous</Button></Link>}
+            {page < totalPages && <Link href={buildPageUrl(page + 1, { search: sp.search, status: sp.status, carrier: sp.carrier })}><Button variant="outline" size="sm">Next</Button></Link>}
           </div>
-        );
-      })()}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,9 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { loadEvents, loads, carriers } from "@/lib/db/schema";
-import { eq, and, gte, lte, desc } from "drizzle-orm";
+import { eq, and, gte, lte, desc, inArray, sql } from "drizzle-orm";
 import { resolveOrgId } from "@/lib/auth";
 import { format } from "date-fns";
+
+function escapeCsv(v: string | null | undefined): string {
+  const val = v ?? "";
+  if (val.includes(",") || val.includes('"') || val.includes("\n")) {
+    return '"' + val.replace(/"/g, '""') + '"';
+  }
+  return val;
+}
 
 export async function GET(request: NextRequest) {
   let orgId: string;
@@ -30,6 +38,17 @@ export async function GET(request: NextRequest) {
   if (endDate) {
     conditions.push(lte(loadEvents.createdAt, new Date(endDate)));
   }
+  // Push eventTypes filter into SQL instead of filtering in JS
+  if (eventTypes) {
+    const types = eventTypes.split(",").map((t) => t.trim()).filter(Boolean);
+    if (types.length > 0) {
+      // Use LIKE for prefix matching: any event whose type starts with one of the given prefixes
+      const likeConditions = types.map((t) =>
+        sql`${loadEvents.eventType} LIKE ${t + "%"}`
+      );
+      conditions.push(sql`(${sql.join(likeConditions, sql` OR `)})`);
+    }
+  }
 
   const events = await db
     .select({
@@ -51,38 +70,33 @@ export async function GET(request: NextRequest) {
     .orderBy(desc(loadEvents.createdAt))
     .limit(10000);
 
-  let filtered = events;
-  if (eventTypes) {
-    const types = eventTypes.split(",");
-    filtered = events.filter((e) => types.some((t) => e.eventType.startsWith(t)));
-  }
-
-  const header = "timestamp,event_type,load_reference,carrier_name,description,actor,actor_type,event_hash";
-  const rows = filtered.map((e) => {
-    const ts = e.createdAt ? format(new Date(e.createdAt), "yyyy-MM-dd HH:mm:ss") : "";
-    const escapeCsv = (v: string | null | undefined) => {
-      const val = v ?? "";
-      if (val.includes(",") || val.includes('"') || val.includes("\n")) {
-        return '"' + val.replace(/"/g, '""') + '"';
+  // Stream CSV response to avoid buffering the entire string in memory
+  const header = "timestamp,event_type,load_reference,carrier_name,description,actor,actor_type,event_hash\n";
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode(header));
+      for (const e of events) {
+        const ts = e.createdAt ? format(new Date(e.createdAt), "yyyy-MM-dd HH:mm:ss") : "";
+        const row = [
+          ts,
+          escapeCsv(e.eventType),
+          escapeCsv(e.referenceNumber),
+          escapeCsv(e.carrierName),
+          escapeCsv(e.description),
+          e.actorId ?? "",
+          e.actorType ?? "",
+          e.eventHash ?? "",
+        ].join(",") + "\n";
+        controller.enqueue(encoder.encode(row));
       }
-      return val;
-    };
-    return [
-      ts,
-      escapeCsv(e.eventType),
-      escapeCsv(e.referenceNumber),
-      escapeCsv(e.carrierName),
-      escapeCsv(e.description),
-      e.actorId ?? "",
-      e.actorType ?? "",
-      e.eventHash ?? "",
-    ].join(",");
+      controller.close();
+    },
   });
 
-  const csv = [header, ...rows].join("\n");
   const fileName = "events-" + format(new Date(), "yyyy-MM-dd") + ".csv";
 
-  return new NextResponse(csv, {
+  return new NextResponse(stream, {
     headers: {
       "Content-Type": "text/csv",
       "Content-Disposition": "attachment; filename=\"" + fileName + "\"",

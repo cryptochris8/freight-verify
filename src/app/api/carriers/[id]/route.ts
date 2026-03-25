@@ -105,7 +105,10 @@ export async function PATCH(
     if (data.phone !== undefined) updates.phone = data.phone || null;
     if (data.mcNumber !== undefined) updates.mcNumber = data.mcNumber || null;
 
-    await db.update(carriers).set(updates).where(eq(carriers.id, id));
+    const [updated] = await db.update(carriers)
+      .set(updates)
+      .where(and(eq(carriers.id, id), eq(carriers.orgId, org.id)))
+      .returning();
 
     await writeAuditLog({
       orgId: org.id,
@@ -116,12 +119,6 @@ export async function PATCH(
       actorType: "user",
       metadata: data,
     });
-
-    const [updated] = await db
-      .select()
-      .from(carriers)
-      .where(eq(carriers.id, id))
-      .limit(1);
 
     return NextResponse.json({ carrier: updated });
   } catch (error) {

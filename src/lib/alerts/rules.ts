@@ -1,4 +1,5 @@
 import type { AlertRuleResult } from '@/types';
+import { calculateDistance } from '@/lib/verification/geo';
 
 interface CarrierSubstitutionInput {
   loadId: string;
@@ -73,17 +74,10 @@ interface OffLocationInput {
 /** Rule 3: GPS location is more than 5 miles from load origin. */
 export function checkOffLocationPickup(input: OffLocationInput): AlertRuleResult {
   const maxMiles = input.maxMiles ?? 5;
-  const R = 3958.8;
-  const dLat = ((input.originLat - input.verificationLat) * Math.PI) / 180;
-  const dLng = ((input.originLng - input.verificationLng) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((input.verificationLat * Math.PI) / 180) *
-      Math.cos((input.originLat * Math.PI) / 180) *
-      Math.sin(dLng / 2) *
-      Math.sin(dLng / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  const distance = R * c;
+  const distance = calculateDistance(
+    input.verificationLat, input.verificationLng,
+    input.originLat, input.originLng
+  );
 
   return {
     triggered: distance > maxMiles,

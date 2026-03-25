@@ -2,13 +2,28 @@ import { NextResponse } from "next/server";
 import { getVerificationStatus } from "@/app/actions/verification";
 import { Resend } from "resend";
 import { logger } from "@/lib/logger";
+import { validateDriverTokenForLoad } from "@/lib/auth/driver-token";
+import { rateLimit, getClientIp } from "@/lib/rate-limit";
+import { escapeHtml } from "@/lib/utils/html-encode";
+import { z } from "zod";
+
+const receiptEmailSchema = z.object({
+  email: z.string().email("Invalid email address").max(255),
+});
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ loadId: string }> }
 ) {
   try {
     const { loadId } = await params;
+
+    // Require a valid driver token that matches the load
+    const load = await validateDriverTokenForLoad(request, loadId);
+    if (!load) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const status = await getVerificationStatus(loadId);
 
     if (!status.exists) {
@@ -39,12 +54,32 @@ export async function POST(
 ) {
   try {
     const { loadId } = await params;
-    const body = await request.json();
-    const { email } = body;
 
-    if (!email) {
-      return NextResponse.json({ error: "Email is required" }, { status: 400 });
+    // Require a valid driver token that matches the load
+    const load = await validateDriverTokenForLoad(request, loadId);
+    if (!load) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    // Rate limit: 5 emails per hour per load
+    const ip = getClientIp(request);
+    const rl = await rateLimit(`receipt-email:${loadId}:${ip}`, 5, 60 * 60 * 1000);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: "Too many receipt email requests. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(Math.ceil((rl.resetAt.getTime() - Date.now()) / 1000)) } }
+      );
+    }
+
+    const body = await request.json();
+
+    // Validate email format with Zod
+    const parsed = receiptEmailSchema.safeParse(body);
+    if (!parsed.success) {
+      const msg = parsed.error.flatten().fieldErrors.email?.join("; ") || "Invalid email";
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
+    const { email } = parsed.data;
 
     const status = await getVerificationStatus(loadId);
     if (!status.exists) {
@@ -66,16 +101,25 @@ export async function POST(
         })
       : "N/A";
 
+    // HTML-encode all interpolated values to prevent XSS
+    const safeRefNum = escapeHtml(status.load?.referenceNumber ?? "N/A");
+    const safeCarrier = escapeHtml(status.carrierName ?? "N/A");
+    const safeDriver = escapeHtml(status.verification.driverName ?? "N/A");
+    const safeVerifiedAt = escapeHtml(verifiedAt);
+    const safeGeoLat = escapeHtml(status.verification.geoLat ?? "N/A");
+    const safeGeoLng = escapeHtml(status.verification.geoLng ?? "N/A");
+    const photoCount = status.verification.photoUrls?.length ?? 0;
+
     const html = `
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:500px;margin:0 auto;">
   <h2 style="color:#18181b;">Pickup Verification Receipt</h2>
   <table style="width:100%;border-collapse:collapse;">
-    <tr><td style="padding:8px 0;color:#71717a;width:40%;">Load Reference</td><td style="padding:8px 0;font-weight:600;">${status.load?.referenceNumber ?? "N/A"}</td></tr>
-    <tr><td style="padding:8px 0;color:#71717a;">Carrier</td><td style="padding:8px 0;font-weight:600;">${status.carrierName ?? "N/A"}</td></tr>
-    <tr><td style="padding:8px 0;color:#71717a;">Driver</td><td style="padding:8px 0;font-weight:600;">${status.verification.driverName ?? "N/A"}</td></tr>
-    <tr><td style="padding:8px 0;color:#71717a;">Verified At</td><td style="padding:8px 0;font-weight:600;">${verifiedAt}</td></tr>
-    <tr><td style="padding:8px 0;color:#71717a;">GPS Location</td><td style="padding:8px 0;font-weight:600;">${status.verification.geoLat ?? "N/A"}, ${status.verification.geoLng ?? "N/A"}</td></tr>
-    <tr><td style="padding:8px 0;color:#71717a;">Photos</td><td style="padding:8px 0;font-weight:600;">${status.verification.photoUrls?.length ?? 0} captured</td></tr>
+    <tr><td style="padding:8px 0;color:#71717a;width:40%;">Load Reference</td><td style="padding:8px 0;font-weight:600;">${safeRefNum}</td></tr>
+    <tr><td style="padding:8px 0;color:#71717a;">Carrier</td><td style="padding:8px 0;font-weight:600;">${safeCarrier}</td></tr>
+    <tr><td style="padding:8px 0;color:#71717a;">Driver</td><td style="padding:8px 0;font-weight:600;">${safeDriver}</td></tr>
+    <tr><td style="padding:8px 0;color:#71717a;">Verified At</td><td style="padding:8px 0;font-weight:600;">${safeVerifiedAt}</td></tr>
+    <tr><td style="padding:8px 0;color:#71717a;">GPS Location</td><td style="padding:8px 0;font-weight:600;">${safeGeoLat}, ${safeGeoLng}</td></tr>
+    <tr><td style="padding:8px 0;color:#71717a;">Photos</td><td style="padding:8px 0;font-weight:600;">${photoCount} captured</td></tr>
   </table>
   <hr style="border:none;border-top:1px solid #e4e4e7;margin:16px 0;">
   <p style="font-size:12px;color:#a1a1aa;">This is an automated receipt from FreightVerify.</p>
@@ -84,7 +128,7 @@ export async function POST(
     const { error } = await resend.emails.send({
       from: process.env.EMAIL_FROM || "FreightVerify <onboarding@resend.dev>",
       to: [email],
-      subject: `Verification Receipt - Load ${status.load?.referenceNumber ?? loadId}`,
+      subject: `Verification Receipt - Load ${safeRefNum}`,
       html,
     });
 

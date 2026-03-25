@@ -1,5 +1,6 @@
 import { auth, currentUser } from '@clerk/nextjs/server';
 import { cache } from 'react';
+import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { organizations } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
@@ -89,4 +90,90 @@ export async function requireAdmin() {
   if (!org) throw new Error('Organization not found');
 
   return { userId, clerkOrgId, orgId: org.id };
+}
+
+// ── API Route Auth Wrapper ────────────────────────────────────────
+
+export interface AuthContext {
+  userId: string;
+  orgId: string;
+  org: typeof organizations.$inferSelect;
+}
+
+/**
+ * Wraps an API route handler with Clerk auth + org resolution.
+ * Eliminates the repeated boilerplate of checking auth, looking up
+ * the org, and returning 401/404 in every route handler.
+ *
+ * Usage:
+ *   export const GET = withAuth(async (request, context) => {
+ *     const { userId, orgId, org } = context;
+ *     // ... handler logic
+ *   });
+ */
+export function withAuth(
+  handler: (request: Request, context: AuthContext) => Promise<NextResponse>
+) {
+  return async (request: Request) => {
+    try {
+      const { userId, orgId: clerkOrgId } = await auth();
+      if (!userId || !clerkOrgId) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+
+      const [org] = await db
+        .select()
+        .from(organizations)
+        .where(eq(organizations.clerkOrgId, clerkOrgId))
+        .limit(1);
+
+      if (!org) {
+        return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+      }
+
+      return await handler(request, { userId, orgId: org.id, org });
+    } catch (error) {
+      if (error instanceof ForbiddenError) {
+        return NextResponse.json({ error: error.message }, { status: 403 });
+      }
+      throw error;
+    }
+  };
+}
+
+/**
+ * Like withAuth but also requires the admin role.
+ */
+export function withAdminAuth(
+  handler: (request: Request, context: AuthContext) => Promise<NextResponse>
+) {
+  return async (request: Request) => {
+    try {
+      const { userId, orgId: clerkOrgId, orgRole } = await auth();
+      if (!userId || !clerkOrgId) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+
+      if (orgRole !== 'org:admin') {
+        return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+      }
+
+      const [org] = await db
+        .select()
+        .from(organizations)
+        .where(eq(organizations.clerkOrgId, clerkOrgId))
+        .limit(1);
+
+      if (!org) {
+        return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+      }
+
+      return await handler(request, { userId, orgId: org.id, org });
+    } catch (error) {
+      if (error instanceof ForbiddenError) {
+        return NextResponse.json({ error: error.message }, { status: 403 });
+      }
+      throw error;
+    }
+  };
 }

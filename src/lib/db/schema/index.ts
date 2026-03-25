@@ -52,6 +52,7 @@ export const carriers = pgTable('carriers', {
   index('carriers_dot_number_idx').on(table.dotNumber),
   index('carriers_status_idx').on(table.status),
   index('carriers_org_id_status_idx').on(table.orgId, table.status),
+  uniqueIndex('carriers_org_id_dot_number_idx').on(table.orgId, table.dotNumber),
 ]);
 
 export const carrierDocuments = pgTable('carrier_documents', {
@@ -121,6 +122,8 @@ export const loads = pgTable('loads', {
   index('loads_org_id_status_idx').on(table.orgId, table.status),
   index('loads_pickup_date_idx').on(table.pickupDate),
   index('loads_reference_number_idx').on(table.referenceNumber),
+  index('loads_tender_token_idx').on(table.tenderToken),
+  index('loads_org_id_pickup_date_idx').on(table.orgId, table.pickupDate),
 ]);
 
 export const pickupVerifications = pgTable('pickup_verifications', {
@@ -153,6 +156,7 @@ export const pickupVerifications = pgTable('pickup_verifications', {
   index('pickup_verifications_load_id_idx').on(table.loadId),
   index('pickup_verifications_org_id_idx').on(table.orgId),
   index('pickup_verifications_verification_status_idx').on(table.verificationStatus),
+  index('pickup_verifications_load_id_status_idx').on(table.loadId, table.verificationStatus),
 ]);
 
 export const loadEvents = pgTable('load_events', {
@@ -213,6 +217,7 @@ export const auditLog = pgTable('audit_log', {
 }, (table) => [
   index('audit_log_org_id_idx').on(table.orgId),
   index('audit_log_entity_type_entity_id_idx').on(table.entityType, table.entityId),
+  index('audit_log_created_at_idx').on(table.createdAt),
 ]);
 
 
@@ -243,6 +248,7 @@ export const loadMessages = pgTable('load_messages', {
 }, (table) => [
   index('load_messages_load_id_idx').on(table.loadId),
   index('load_messages_org_id_idx').on(table.orgId),
+  index('load_messages_load_id_created_at_idx').on(table.loadId, table.createdAt),
 ]);
 
 // Relations
@@ -360,4 +366,6 @@ export const rateLimitEntries = pgTable('rate_limit_entries', {
   key: varchar('key', { length: 255 }).primaryKey(),
   tokens: numeric('tokens', { precision: 10, scale: 4 }).notNull(),
   lastRefill: timestamp('last_refill', { withTimezone: true }).notNull(),
-});
+}, (table) => [
+  index('rate_limit_entries_last_refill_idx').on(table.lastRefill),
+]);

@@ -8,15 +8,7 @@ import { Truck, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { CarrierTabs } from "@/components/carriers/carrier-tabs";
 import { ReverifyButton } from "@/components/carriers/reverify-button";
-
-function getStatusVariant(status: string | null) {
-  switch (status) {
-    case "verified": return "default" as const;
-    case "pending": return "secondary" as const;
-    case "flagged": case "suspended": return "destructive" as const;
-    default: return "outline" as const;
-  }
-}
+import { getCarrierStatusVariant } from "@/lib/utils/status-variant";
 
 export default async function CarrierDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -55,7 +47,7 @@ export default async function CarrierDetailPage({ params }: { params: Promise<{ 
           <div className="flex items-center gap-3 mt-2">
             <Truck className="h-6 w-6" />
             <h2 className="text-2xl font-bold tracking-tight">{carrier.legalName}</h2>
-            <Badge variant={getStatusVariant(carrier.status)}>{carrier.status || "pending"}</Badge>
+            <Badge variant={getCarrierStatusVariant(carrier.status)}>{carrier.status || "pending"}</Badge>
             {carrier.insuranceOnFile && <Badge variant="outline" className="gap-1"><ShieldCheck className="h-3 w-3" /> Insurance</Badge>}
           </div>
           {carrier.dbaName && <p className="text-muted-foreground mt-1">DBA: {carrier.dbaName}</p>}

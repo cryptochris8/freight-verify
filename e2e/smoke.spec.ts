@@ -30,7 +30,7 @@ test.describe("Smoke tests", () => {
     const response = await page.goto("/carriers");
     // Clerk redirects to sign-in or returns a redirect status
     const url = page.url();
-    expect(url.includes("/carriers") && !url.includes("sign-in")).toBeFalsy;
+    expect(url.includes("/carriers") && !url.includes("sign-in")).toBeFalsy();
   });
 
   test("API health — carriers returns 401 without auth", async ({ request }) => {

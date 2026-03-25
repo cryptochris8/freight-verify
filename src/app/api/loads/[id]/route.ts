@@ -122,7 +122,10 @@ export async function PATCH(
     if (data.rateDollars !== undefined) updates.rateCents = data.rateDollars ? Math.round(parseFloat(data.rateDollars) * 100) : null;
     if (data.carrierId !== undefined) updates.carrierId = data.carrierId || null;
 
-    await db.update(loads).set(updates).where(eq(loads.id, id));
+    const [updated] = await db.update(loads)
+      .set(updates)
+      .where(and(eq(loads.id, id), eq(loads.orgId, org.id)))
+      .returning();
 
     await createChainedEvent({
       loadId: id,
@@ -143,12 +146,6 @@ export async function PATCH(
       actorType: "user",
       metadata: data,
     });
-
-    const [updated] = await db
-      .select()
-      .from(loads)
-      .where(eq(loads.id, id))
-      .limit(1);
 
     return NextResponse.json({ load: updated });
   } catch (error) {

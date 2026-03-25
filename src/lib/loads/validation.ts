@@ -1,26 +1,14 @@
-import { z } from "zod";
 import { randomInt } from "crypto";
+import { loadCreateSchema } from "@/lib/validation/schemas";
 
-export const loadFormSchema = z.object({
-  referenceNumber: z.string().min(1, "Reference number is required").max(50),
-  originName: z.string().min(1, "Origin name is required"),
-  originAddress: z.string().min(1, "Origin address is required"),
-  originLat: z.string().optional().or(z.literal("")),
-  originLng: z.string().optional().or(z.literal("")),
-  destinationName: z.string().min(1, "Destination name is required"),
-  destinationAddress: z.string().min(1, "Destination address is required"),
-  destinationLat: z.string().optional().or(z.literal("")),
-  destinationLng: z.string().optional().or(z.literal("")),
-  pickupDate: z.string().min(1, "Pickup date is required"),
-  deliveryDate: z.string().optional().or(z.literal("")),
-  commodity: z.string().optional().or(z.literal("")),
-  weightLbs: z.string().optional().or(z.literal("")),
-  specialInstructions: z.string().optional().or(z.literal("")),
-  rateDollars: z.string().optional().or(z.literal("")),
-  carrierId: z.string().optional().or(z.literal("")),
-});
+/**
+ * Form schema for the load creation UI.
+ * Derives from loadCreateSchema to ensure consistent validation rules
+ * between the Server Action path and the API route path.
+ */
+export const loadFormSchema = loadCreateSchema;
 
-export type LoadFormValues = z.infer<typeof loadFormSchema>;
+export type LoadFormValues = typeof loadCreateSchema._output;
 
 export function generateReferenceNumber(): string {
   const now = new Date();

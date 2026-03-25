@@ -16,16 +16,7 @@ import { GeneratePickupCode } from "@/components/verification/generate-pickup-co
 import { EventFeed } from "@/components/events/event-feed";
 import { ChainIntegrityChecker } from "@/components/events/chain-integrity-checker";
 import { MapPin, Calendar, Truck, Package, DollarSign, Clock, ArrowRight, Shield, ShieldCheck, Activity } from "lucide-react";
-
-function getStatusVariant(status: string) {
-  switch (status) {
-    case "completed": case "delivered": return "default" as const;
-    case "in_transit": case "accepted": return "secondary" as const;
-    case "draft": case "tendered": return "outline" as const;
-    case "cancelled": return "destructive" as const;
-    default: return "secondary" as const;
-  }
-}
+import { getLoadStatusVariant } from "@/lib/utils/status-variant";
 
 export default async function LoadDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -69,7 +60,7 @@ export default async function LoadDetailPage({ params }: { params: Promise<{ id:
         <div>
           <div className="flex items-center gap-3">
             <h2 className="text-2xl font-bold tracking-tight">{load.referenceNumber || "Load"}</h2>
-            <Badge variant={getStatusVariant(load.status || "draft")} className="text-sm">
+            <Badge variant={getLoadStatusVariant(load.status || "draft")} className="text-sm">
               {(load.status || "draft").replace("_", " ")}
             </Badge>
             {verification && (

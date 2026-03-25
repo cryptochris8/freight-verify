@@ -17,9 +17,23 @@ vi.mock("@/lib/db", () => {
     mock.limit = vi.fn().mockImplementation(() => {
       const result = selectResults[selectCallCount] ?? [];
       selectCallCount++;
+      // Return an object that is both thenable (for queries without offset)
+      // and chainable (for queries with offset)
+      return {
+        offset: vi.fn().mockImplementation(() => {
+          // offset() consumes the next selectResults entry
+          const offsetResult = selectResults[selectCallCount] ?? result;
+          selectCallCount++;
+          return Promise.resolve(offsetResult);
+        }),
+        then: (resolve: (v: unknown) => void) => Promise.resolve(result).then(resolve),
+      };
+    });
+    mock.offset = vi.fn().mockImplementation(() => {
+      const result = selectResults[selectCallCount] ?? [];
+      selectCallCount++;
       return Promise.resolve(result);
     });
-    mock.offset = vi.fn().mockReturnValue(mock);
     return mock;
   };
 
@@ -73,6 +87,8 @@ vi.mock("@/lib/logger", () => ({
 
 import { auth } from "@clerk/nextjs/server";
 import { carrierCreateSchema } from "@/lib/validation/schemas";
+
+const mockOrg = { id: "org-uuid-1", clerkOrgId: "org_clerk_123", name: "Test Org" };
 
 describe("carriers API", () => {
   beforeEach(() => {
@@ -134,6 +150,63 @@ describe("carriers API", () => {
       expect(response.status).toBe(404);
       const body = await response.json();
       expect(body.error).toBe("Organization not found");
+    });
+  });
+
+  describe("happy paths", () => {
+    it("GET passes auth and calls db.select for carrier list", async () => {
+      vi.mocked(auth).mockResolvedValueOnce({
+        orgId: "org_clerk_123",
+        userId: "user_123",
+      } as never);
+
+      // withAuth org lookup succeeds
+      selectResults = [[mockOrg]];
+
+      const { GET } = await import("@/app/api/carriers/route");
+      const { db } = await import("@/lib/db");
+      const request = new Request("http://localhost:3000/api/carriers?page=1&limit=20");
+      await GET(request);
+
+      // Verify that db.select was called (auth passed, query attempted)
+      expect(db.select).toHaveBeenCalled();
+    });
+
+    it("POST creates a carrier successfully", async () => {
+      vi.mocked(auth).mockResolvedValueOnce({
+        orgId: "org_clerk_123",
+        userId: "user_123",
+      } as never);
+
+      // Org lookup succeeds
+      selectResults = [[mockOrg]];
+
+      vi.mocked(carrierCreateSchema.safeParse).mockReturnValueOnce({
+        success: true,
+        data: {
+          dotNumber: "123456",
+          mcNumber: "MC789",
+          legalName: "Test Carrier Inc",
+          email: "dispatch@testcarrier.com",
+          phone: "555-1234",
+        },
+      } as never);
+
+      const { POST } = await import("@/app/api/carriers/route");
+      const request = new Request("http://localhost:3000/api/carriers", {
+        method: "POST",
+        body: JSON.stringify({
+          dotNumber: "123456",
+          legalName: "Test Carrier Inc",
+        }),
+        headers: { "Content-Type": "application/json" },
+      });
+      const response = await POST(request);
+
+      expect(response.status).toBe(201);
+      const body = await response.json();
+      expect(body.carrier).toBeDefined();
+      expect(body.carrier.id).toBe("new-carrier-1");
     });
   });
 });

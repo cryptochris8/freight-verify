@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { Webhook } from "svix";
 import { db } from "@/lib/db";
-import { organizations, onboardingProgress, subscriptions } from "@/lib/db/schema";
+import {
+  organizations, onboardingProgress, subscriptions,
+  carriers, loads, loadEvents, alerts, auditLog,
+  carrierDocuments, carrierVerifications, pickupVerifications,
+  loadDocuments, loadMessages,
+} from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 
@@ -55,13 +60,20 @@ export async function POST(request: Request) {
     switch (event.type) {
       case "organization.created": {
         const org = event.data;
-        await db.insert(organizations).values({
-          clerkOrgId: org.id,
-          name: org.name,
-          plan: "starter",
-          verifiedLoadsLimit: 50,
-        });
-        logger.info("CLERK", "Organization created", { name: org.name, clerkOrgId: org.id });
+        // Upsert to handle Clerk webhook retries idempotently
+        const [existingOrg] = await db.select({ id: organizations.id })
+          .from(organizations).where(eq(organizations.clerkOrgId, org.id)).limit(1);
+        if (!existingOrg) {
+          await db.insert(organizations).values({
+            clerkOrgId: org.id,
+            name: org.name,
+            plan: "starter",
+            verifiedLoadsLimit: 50,
+          });
+          logger.info("CLERK", "Organization created", { name: org.name, clerkOrgId: org.id });
+        } else {
+          logger.info("CLERK", "Organization already exists, skipping", { clerkOrgId: org.id });
+        }
         break;
       }
 
@@ -81,21 +93,27 @@ export async function POST(request: Request) {
       case "organization.deleted": {
         const org = event.data;
         const [existing] = await db
-          .select()
+          .select({ id: organizations.id })
           .from(organizations)
           .where(eq(organizations.clerkOrgId, org.id))
           .limit(1);
 
         if (existing) {
-          await db
-            .delete(subscriptions)
-            .where(eq(subscriptions.orgId, existing.id));
-          await db
-            .delete(onboardingProgress)
-            .where(eq(onboardingProgress.orgId, existing.id));
-          await db
-            .delete(organizations)
-            .where(eq(organizations.clerkOrgId, org.id));
+          // Delete all org-owned data in dependency order to avoid FK violations.
+          // Child tables first, then parent tables, then the org itself.
+          await db.delete(loadMessages).where(eq(loadMessages.orgId, existing.id));
+          await db.delete(loadDocuments).where(eq(loadDocuments.orgId, existing.id));
+          await db.delete(pickupVerifications).where(eq(pickupVerifications.orgId, existing.id));
+          await db.delete(loadEvents).where(eq(loadEvents.orgId, existing.id));
+          await db.delete(alerts).where(eq(alerts.orgId, existing.id));
+          await db.delete(auditLog).where(eq(auditLog.orgId, existing.id));
+          await db.delete(carrierDocuments).where(eq(carrierDocuments.orgId, existing.id));
+          await db.delete(carrierVerifications).where(eq(carrierVerifications.orgId, existing.id));
+          await db.delete(loads).where(eq(loads.orgId, existing.id));
+          await db.delete(carriers).where(eq(carriers.orgId, existing.id));
+          await db.delete(subscriptions).where(eq(subscriptions.orgId, existing.id));
+          await db.delete(onboardingProgress).where(eq(onboardingProgress.orgId, existing.id));
+          await db.delete(organizations).where(eq(organizations.id, existing.id));
         }
         logger.info("CLERK", "Organization deleted", { clerkOrgId: org.id });
         break;
