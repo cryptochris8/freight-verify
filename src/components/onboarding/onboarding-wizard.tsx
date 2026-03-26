@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -25,6 +26,7 @@ const steps = [
 export function OnboardingWizard({ completedSteps, currentStep }: OnboardingWizardProps) {
   const [step, setStep] = useState(currentStep);
   const [isPending, startTransition] = useTransition();
+  const router = useRouter();
   const totalSteps = steps.length;
   const progress = (step / (totalSteps - 1)) * 100;
   const current = steps[step];
@@ -34,7 +36,7 @@ export function OnboardingWizard({ completedSteps, currentStep }: OnboardingWiza
       await completeStep(current.id as OnboardingStep);
       if (step === totalSteps - 1) {
         await markOnboardingComplete();
-        window.location.href = "/";
+        router.push("/");
       } else {
         setStep(step + 1);
       }
@@ -51,7 +53,7 @@ export function OnboardingWizard({ completedSteps, currentStep }: OnboardingWiza
   const handleFinish = () => {
     startTransition(async () => {
       await markOnboardingComplete();
-      window.location.href = "/";
+      router.push("/");
     });
   };
 

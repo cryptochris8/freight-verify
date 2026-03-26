@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +21,27 @@ interface GeoCaptureProps {
   maxMiles?: number;
 }
 
+/** Client-safe Haversine distance calculation (miles). */
+function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 3958.8;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+function computeDistance(originLat: string | null | undefined, originLng: string | null | undefined, lat: number, lng: number): number | null {
+  if (!originLat || !originLng) return null;
+  const dist = haversineDistance(lat, lng, parseFloat(originLat), parseFloat(originLng));
+  return Math.round(dist * 10) / 10;
+}
+
 export function GeoCapture({ originLat, originLng, onCapture, maxMiles = 5 }: GeoCaptureProps) {
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "denied" | "error">("idle");
   const [geoData, setGeoData] = useState<GeoData | null>(null);
@@ -30,7 +51,11 @@ export function GeoCapture({ originLat, originLng, onCapture, maxMiles = 5 }: Ge
   const [manualLat, setManualLat] = useState("");
   const [manualLng, setManualLng] = useState("");
 
-  function captureLocation() {
+  // Stable ref to onCapture to avoid re-triggering effects
+  const onCaptureRef = useRef(onCapture);
+  onCaptureRef.current = onCapture;
+
+  const captureLocation = useCallback(() => {
     if (!navigator.geolocation) {
       setStatus("error");
       setErrorMsg("Geolocation is not supported by this browser");
@@ -49,23 +74,8 @@ export function GeoCapture({ originLat, originLng, onCapture, maxMiles = 5 }: Ge
         };
         setGeoData(data);
         setStatus("success");
-
-        if (originLat && originLng) {
-          const R = 3958.8;
-          const dLat = ((parseFloat(originLat) - data.lat) * Math.PI) / 180;
-          const dLng = ((parseFloat(originLng) - data.lng) * Math.PI) / 180;
-          const a =
-            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos((data.lat * Math.PI) / 180) *
-              Math.cos((parseFloat(originLat) * Math.PI) / 180) *
-              Math.sin(dLng / 2) *
-              Math.sin(dLng / 2);
-          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-          const dist = Math.round(R * c * 10) / 10;
-          setDistance(dist);
-        }
-
-        onCapture(data);
+        setDistance(computeDistance(originLat, originLng, data.lat, data.lng));
+        onCaptureRef.current(data);
       },
       (error) => {
         if (error.code === error.PERMISSION_DENIED) {
@@ -78,7 +88,7 @@ export function GeoCapture({ originLat, originLng, onCapture, maxMiles = 5 }: Ge
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
-  }
+  }, [originLat, originLng]);
 
   function submitManualLocation() {
     const lat = parseFloat(manualLat);
@@ -90,28 +100,14 @@ export function GeoCapture({ originLat, originLng, onCapture, maxMiles = 5 }: Ge
     setGeoData(data);
     setStatus("success");
     setManualMode(false);
-
-    if (originLat && originLng) {
-      const R = 3958.8;
-      const dLat = ((parseFloat(originLat) - lat) * Math.PI) / 180;
-      const dLng = ((parseFloat(originLng) - lng) * Math.PI) / 180;
-      const a =
-        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos((lat * Math.PI) / 180) *
-          Math.cos((parseFloat(originLat) * Math.PI) / 180) *
-          Math.sin(dLng / 2) *
-          Math.sin(dLng / 2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      setDistance(Math.round(R * c * 10) / 10);
-    }
-
-    onCapture(data);
+    setDistance(computeDistance(originLat, originLng, lat, lng));
+    onCaptureRef.current(data);
   }
 
+  // Auto-capture on mount
   useEffect(() => {
     captureLocation();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [captureLocation]);
 
   return (
     <Card>
