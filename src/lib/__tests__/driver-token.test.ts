@@ -41,7 +41,6 @@ describe("driver-token validation", () => {
     const req = mockRequest({});
     const result = await validateDriverToken(req);
     expect(result).toBeNull();
-    // Should not even query the DB
     expect(db.select).not.toHaveBeenCalled();
   });
 
