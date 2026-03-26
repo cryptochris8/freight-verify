@@ -79,8 +79,9 @@ export async function createChainedEvent(input: CreateEventInput, externalTx?: P
   }
 
   // Broadcast to SSE listeners (fire-and-forget, non-blocking)
+  // Uses Redis pub/sub when configured for cross-instance delivery
   try {
-    sseEmitter.broadcast(input.orgId, {
+    await sseEmitter.broadcast(input.orgId, {
       type: "event_created",
       data: {
         loadId: input.loadId,

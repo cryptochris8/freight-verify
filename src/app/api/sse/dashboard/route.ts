@@ -24,22 +24,14 @@ export async function GET() {
 
   const encoder = new TextEncoder();
   let unsubscribe: (() => void) | null = null;
+  let pollInterval: ReturnType<typeof setInterval> | null = null;
 
   const stream = new ReadableStream({
     start(controller) {
       // Send initial connection event
       controller.enqueue(encoder.encode("event: connected\ndata: {}\n\n"));
 
-      // Heartbeat every 30s to keep connection alive
-      const heartbeat = setInterval(() => {
-        try {
-          controller.enqueue(encoder.encode(": heartbeat\n\n"));
-        } catch {
-          clearInterval(heartbeat);
-        }
-      }, 30_000);
-
-      // Subscribe to org events
+      // Subscribe to in-process events (same-instance delivery)
       unsubscribe = sseEmitter.subscribe(org.id, (event: SSEEvent) => {
         try {
           const payload = `event: ${event.type}\ndata: ${JSON.stringify(event.data)}\n\n`;
@@ -49,11 +41,32 @@ export async function GET() {
         }
       });
 
-      // Cleanup when client disconnects (after ~60s on Vercel)
-      // The ReadableStream cancel() will handle cleanup
+      // Poll Redis for cross-instance events every 2 seconds
+      // (only does work when UPSTASH_REDIS_REST_URL is configured)
+      pollInterval = setInterval(async () => {
+        try {
+          const events = await sseEmitter.poll(org.id);
+          for (const event of events) {
+            const payload = `event: ${event.type}\ndata: ${JSON.stringify(event.data)}\n\n`;
+            controller.enqueue(encoder.encode(payload));
+          }
+        } catch {
+          // Ignore poll errors
+        }
+      }, 2000);
+
+      // Heartbeat every 30s to keep connection alive
+      const heartbeat = setInterval(() => {
+        try {
+          controller.enqueue(encoder.encode(": heartbeat\n\n"));
+        } catch {
+          clearInterval(heartbeat);
+        }
+      }, 30_000);
     },
     cancel() {
       unsubscribe?.();
+      if (pollInterval) clearInterval(pollInterval);
     },
   });
 

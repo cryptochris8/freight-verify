@@ -4,9 +4,10 @@ import { db } from "@/lib/db";
 import { loads, loadEvents, carriers } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { type LoadFormValues } from "@/lib/loads/validation";
+import { loadFormSchema, type LoadFormValues } from "@/lib/loads/validation";
 import { transitionStatus, type LoadStatus } from "@/lib/loads/status-engine";
 import { createChainedEvent } from "@/lib/events/create-event";
+import { writeAuditLog } from "@/lib/audit";
 import { sendTenderNotification } from "@/lib/notifications/tender-email";
 import { createLoadCore } from "@/lib/loads/create-load";
 import crypto from "crypto";
@@ -26,6 +27,12 @@ export async function updateLoad(loadId: string, values: LoadFormValues, orgId: 
   if (!parsed.success) {
     return { success: false as const, error: parsed.error.flatten().fieldErrors };
   }
+
+  // Verify the load exists, belongs to the org, and is in draft status
+  const [existingLoad] = await db.select().from(loads)
+    .where(and(eq(loads.id, loadId), eq(loads.orgId, orgId))).limit(1);
+  if (!existingLoad) return { success: false as const, error: "Load not found" };
+  if (existingLoad.status !== "draft") return { success: false as const, error: "Only draft loads can be edited" };
 
   const data = parsed.data;
   const rateCents = data.rateDollars ? Math.round(parseFloat(data.rateDollars) * 100) : null;
@@ -51,17 +58,49 @@ export async function updateLoad(loadId: string, values: LoadFormValues, orgId: 
     updatedAt: new Date(),
   }).where(and(eq(loads.id, loadId), eq(loads.orgId, orgId)));
 
+  await createChainedEvent({
+    loadId,
+    orgId,
+    eventType: "load_updated",
+    actorId: userId,
+    actorType: "user",
+    description: "Load " + (existingLoad.referenceNumber ?? loadId) + " updated",
+    metadata: data,
+  });
+
+  await writeAuditLog({
+    orgId,
+    entityType: "load",
+    entityId: loadId,
+    action: "load_updated",
+    actorId: userId,
+    actorType: "user",
+    metadata: data,
+  });
+
   revalidatePath("/loads");
   return { success: true as const };
 }
 
-export async function deleteLoad(loadId: string, orgId: string) {
+export async function deleteLoad(loadId: string, orgId: string, userId: string) {
   const [load] = await db.select().from(loads).where(and(eq(loads.id, loadId), eq(loads.orgId, orgId))).limit(1);
   if (!load) return { success: false as const, error: "Load not found" };
-  if (load.status !== "draft") return { success: false as const, error: "Only draft loads can be deleted" };
+  if (load.status !== "draft" && load.status !== "cancelled") {
+    return { success: false as const, error: "Only draft or cancelled loads can be deleted" };
+  }
 
-  await db.delete(loadEvents).where(eq(loadEvents.loadId, loadId));
-  await db.delete(loads).where(eq(loads.id, loadId));
+  // Hard delete — cascades to events, verifications, documents, messages via FK constraints
+  await db.delete(loads).where(and(eq(loads.id, loadId), eq(loads.orgId, orgId)));
+
+  await writeAuditLog({
+    orgId,
+    entityType: "load",
+    entityId: loadId,
+    action: "load_deleted",
+    actorId: userId,
+    actorType: "user",
+    metadata: { referenceNumber: load.referenceNumber, status: load.status },
+  });
 
   revalidatePath("/loads");
   return { success: true as const };

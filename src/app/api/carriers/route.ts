@@ -3,7 +3,7 @@ import { carrierCreateSchema } from "@/lib/validation/schemas";
 import { rateLimit } from "@/lib/rate-limit";
 import { db } from "@/lib/db";
 import { carriers } from "@/lib/db/schema";
-import { eq, count } from "drizzle-orm";
+import { eq, count, and, like, or, desc, asc } from "drizzle-orm";
 import { checkAccess } from "@/lib/billing/feature-gate";
 import { writeAuditLog } from "@/lib/audit";
 import { logger } from "@/lib/logger";
@@ -16,13 +16,43 @@ export const GET = withAuth(async (request, { orgId }) => {
     const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") || "20", 10)));
     const offset = (page - 1) * limit;
 
-    const [totalResult] = await db.select({ value: count() }).from(carriers).where(eq(carriers.orgId, orgId));
+    // Filtering
+    const status = url.searchParams.get("status");
+    const search = url.searchParams.get("search");
+
+    // Sorting
+    const sortBy = url.searchParams.get("sortBy") || "createdAt";
+    const sortOrder = url.searchParams.get("sortOrder") === "asc" ? "asc" : "desc";
+
+    const conditions: ReturnType<typeof eq>[] = [eq(carriers.orgId, orgId)];
+    if (status) conditions.push(eq(carriers.status, status));
+    if (search) {
+      const searchTerm = `%${search}%`;
+      conditions.push(
+        or(
+          like(carriers.legalName, searchTerm),
+          like(carriers.dotNumber, searchTerm),
+          like(carriers.mcNumber, searchTerm),
+        )!
+      );
+    }
+
+    const whereClause = and(...conditions);
+
+    const [totalResult] = await db.select({ value: count() }).from(carriers).where(whereClause);
     const total = totalResult?.value ?? 0;
+
+    const sortCol = sortBy === "legalName" ? carriers.legalName
+      : sortBy === "status" ? carriers.status
+      : sortBy === "dotNumber" ? carriers.dotNumber
+      : carriers.createdAt;
+    const orderFn = sortOrder === "asc" ? asc : desc;
 
     const items = await db
       .select()
       .from(carriers)
-      .where(eq(carriers.orgId, orgId))
+      .where(whereClause)
+      .orderBy(orderFn(sortCol))
       .limit(limit)
       .offset(offset);
 
