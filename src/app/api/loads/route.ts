@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { rateLimit } from "@/lib/rate-limit";
 import { db } from "@/lib/db";
-import { loads } from "@/lib/db/schema";
+import { loads, loadStatusEnum } from "@/lib/db/schema";
 import { eq, count, and, like, desc, asc, gte, lte, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 import { withAuth } from "@/lib/auth";
@@ -26,7 +26,12 @@ export const GET = withAuth(async (request, { orgId }) => {
     const sortOrder = url.searchParams.get("sortOrder") === "asc" ? "asc" : "desc";
 
     const conditions: ReturnType<typeof eq>[] = [eq(loads.orgId, orgId)];
-    if (status) conditions.push(eq(loads.status, status));
+    // Only filter when the query param is a valid load status (an unknown value
+    // is ignored rather than pushed as a raw string into the enum column).
+    if (status) {
+      const s = status as (typeof loadStatusEnum.enumValues)[number];
+      if (loadStatusEnum.enumValues.includes(s)) conditions.push(eq(loads.status, s));
+    }
     if (carrierId) conditions.push(eq(loads.carrierId, carrierId));
     if (search) conditions.push(like(loads.referenceNumber, `%${search}%`));
     if (startDate) conditions.push(gte(loads.pickupDate, new Date(startDate)));

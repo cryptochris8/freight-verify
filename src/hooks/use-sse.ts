@@ -14,7 +14,9 @@ export interface SSEMessage {
  */
 export function useSSE(onMessage: (msg: SSEMessage) => void) {
   const callbackRef = useRef(onMessage);
-  callbackRef.current = onMessage;
+  useEffect(() => {
+    callbackRef.current = onMessage;
+  }, [onMessage]);
 
   useEffect(() => {
     const es = new EventSource("/api/sse/dashboard");

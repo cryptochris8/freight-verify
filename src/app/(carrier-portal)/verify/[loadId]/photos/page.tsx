@@ -34,7 +34,7 @@ export default function PhotoCapturePage() {
     if (!file) return;
 
     const entry: PhotoEntry = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       type: photoType,
       name: file.name,
       preview: URL.createObjectURL(file),

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { carrierCreateSchema } from "@/lib/validation/schemas";
 import { rateLimit } from "@/lib/rate-limit";
 import { db } from "@/lib/db";
-import { carriers } from "@/lib/db/schema";
+import { carriers, carrierStatusEnum } from "@/lib/db/schema";
 import { eq, count, and, like, or, desc, asc } from "drizzle-orm";
 import { checkAccess } from "@/lib/billing/feature-gate";
 import { writeAuditLog } from "@/lib/audit";
@@ -25,7 +25,12 @@ export const GET = withAuth(async (request, { orgId }) => {
     const sortOrder = url.searchParams.get("sortOrder") === "asc" ? "asc" : "desc";
 
     const conditions: ReturnType<typeof eq>[] = [eq(carriers.orgId, orgId)];
-    if (status) conditions.push(eq(carriers.status, status));
+    // Only filter when the query param is a valid carrier status (an unknown
+    // value is ignored rather than pushed as a raw string into the enum column).
+    if (status) {
+      const s = status as (typeof carrierStatusEnum.enumValues)[number];
+      if (carrierStatusEnum.enumValues.includes(s)) conditions.push(eq(carriers.status, s));
+    }
     if (search) {
       const searchTerm = `%${search}%`;
       conditions.push(

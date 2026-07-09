@@ -1,3 +1,4 @@
+import { createElement } from "react";
 import { db } from "@/lib/db";
 import { alerts, loads, carriers, loadEvents } from "@/lib/db/schema";
 import { eq, and, desc } from "drizzle-orm";
@@ -70,7 +71,7 @@ export default async function AlertDetailPage({ params }: { params: Promise<{ id
       <div>
         <Link href="/alerts" className="text-sm text-muted-foreground hover:underline">Back to Alerts</Link>
         <div className="flex items-center gap-3 mt-2">
-          <Icon className="h-6 w-6 text-muted-foreground" />
+          {createElement(Icon, { className: "h-6 w-6 text-muted-foreground" })}
           <h2 className="text-2xl font-bold tracking-tight">{alert.title}</h2>
           {getSeverityBadge(alert.severity)}
           <Badge variant={alert.status === "acknowledged" ? "outline" : "secondary"}>

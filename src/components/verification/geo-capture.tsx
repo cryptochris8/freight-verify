@@ -53,7 +53,9 @@ export function GeoCapture({ originLat, originLng, onCapture, maxMiles = 5 }: Ge
 
   // Stable ref to onCapture to avoid re-triggering effects
   const onCaptureRef = useRef(onCapture);
-  onCaptureRef.current = onCapture;
+  useEffect(() => {
+    onCaptureRef.current = onCapture;
+  }, [onCapture]);
 
   const captureLocation = useCallback(() => {
     if (!navigator.geolocation) {
@@ -104,8 +106,12 @@ export function GeoCapture({ originLat, originLng, onCapture, maxMiles = 5 }: Ge
     onCaptureRef.current(data);
   }
 
-  // Auto-capture on mount
+  // Auto-capture on mount: captureLocation() sets "loading" and then resolves
+  // geolocation asynchronously. The synchronous status update on mount is
+  // intentional (show the spinner immediately), and captureLocation is the same
+  // callback the retry button uses.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional loading state on mount
     captureLocation();
   }, [captureLocation]);
 
